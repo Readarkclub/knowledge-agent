@@ -36,6 +36,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+.vercel-cli-auth/
 
 # private local knowledge index
 /data/index.json
@@ -50,3 +51,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
