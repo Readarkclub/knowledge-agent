@@ -1,0 +1,8 @@
+.cache
+.next
+node_modules
+desktop-answer.png
+mobile-evidence.png
+dev-server*.log
+chat-*.txt
+*.tsbuildinfo
