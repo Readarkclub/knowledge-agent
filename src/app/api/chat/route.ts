@@ -1,11 +1,20 @@
 import {
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   streamText,
   type UIMessage,
 } from "ai";
 import { getKnowledgeModel } from "@/lib/ai";
 import { RETRIEVAL } from "@/lib/config";
 import { buildKnowledgeSystemPrompt } from "@/lib/prompt";
+import {
+  buildLatestWeeklyReportAnswer,
+  findLatestWeeklyReport,
+  isLatestWeeklyReportIdentityQuery,
+  isLatestWeeklyReportQuery,
+  latestWeeklyReportSources,
+} from "@/lib/reports";
 import { searchKnowledge } from "@/lib/search";
 import { readIndex } from "@/lib/store";
 
@@ -35,11 +44,30 @@ export async function POST(request: Request) {
     }
 
     const index = await readIndex();
-    const sources = await searchKnowledge(
-      index,
-      query,
-      RETRIEVAL.contextResults
-    );
+    const latestReportQuery = isLatestWeeklyReportQuery(query);
+    const latestReport = latestReportQuery
+      ? findLatestWeeklyReport(index)
+      : null;
+    const sources = latestReportQuery
+      ? latestWeeklyReportSources(index, query, RETRIEVAL.contextResults)
+      : await searchKnowledge(index, query, RETRIEVAL.contextResults);
+
+    if (
+      latestReport &&
+      isLatestWeeklyReportIdentityQuery(query)
+    ) {
+      const answer = buildLatestWeeklyReportAnswer(latestReport);
+      const stream = createUIMessageStream({
+        execute({ writer }) {
+          const id = "latest-weekly-report";
+          writer.write({ type: "text-start", id });
+          writer.write({ type: "text-delta", id, delta: answer });
+          writer.write({ type: "text-end", id });
+        },
+      });
+
+      return createUIMessageStreamResponse({ stream });
+    }
 
     const result = streamText({
       model: getKnowledgeModel(),

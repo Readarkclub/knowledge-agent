@@ -1,3 +1,7 @@
+import {
+  isLatestWeeklyReportQuery,
+  latestWeeklyReportSources,
+} from "@/lib/reports";
 import { searchKnowledge } from "@/lib/search";
 import { readIndex } from "@/lib/store";
 
@@ -12,7 +16,8 @@ export async function POST(request: Request) {
   }
 
   const index = await readIndex();
-  const results = await searchKnowledge(index, query);
+  const results = isLatestWeeklyReportQuery(query)
+    ? latestWeeklyReportSources(index, query)
+    : await searchKnowledge(index, query);
   return Response.json({ results, sync: index.sync });
 }
-

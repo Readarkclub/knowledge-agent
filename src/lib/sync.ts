@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { extractWeeklyReportCitations } from "@/lib/citations";
 import { KNOWLEDGE_SOURCE } from "@/lib/config";
 import { chunkDocument } from "@/lib/chunking";
 import {
@@ -20,6 +21,7 @@ import type {
   KnowledgeChunk,
   KnowledgeDocument,
   KnowledgeIndex,
+  WikiNode,
 } from "@/lib/types";
 
 let activeSync: Promise<KnowledgeIndex> | null = null;
@@ -79,12 +81,77 @@ async function performSync(): Promise<KnowledgeIndex> {
   const fetched = await mapLimit(documentNodes, 3, async (node) => {
     try {
       const document = await fetchWikiDocument(node.nodeToken);
-      return { node, document };
+      return {
+        node,
+        document,
+        url: `${KNOWLEDGE_SOURCE.domain}/wiki/${node.nodeToken}`,
+      };
     } catch (error) {
       warnings.push(`${node.title}: ${(error as Error).message}`);
-      return { node, document: null };
+      return {
+        node,
+        document: null,
+        url: `${KNOWLEDGE_SOURCE.domain}/wiki/${node.nodeToken}`,
+      };
     }
   });
+
+  const seenDocumentTokens = new Set(
+    documentNodes.flatMap((node) => [node.nodeToken, node.objToken])
+  );
+  let citationSources = fetched.filter((item) => item.document);
+
+  while (citationSources.length) {
+    const citedNodes: WikiNode[] = [];
+
+    for (const source of citationSources) {
+      for (const citation of extractWeeklyReportCitations(
+        source.document?.markdown || ""
+      )) {
+        if (seenDocumentTokens.has(citation.docId)) {
+          continue;
+        }
+
+        seenDocumentTokens.add(citation.docId);
+        titleByNodeToken.set(citation.docId, citation.title);
+        citedNodes.push({
+          spaceId: root.spaceId,
+          nodeToken: citation.docId,
+          objToken: citation.docId,
+          objType: "docx",
+          nodeType: "origin",
+          parentNodeToken: source.node.nodeToken,
+          title: citation.title,
+          hasChild: false,
+        });
+      }
+    }
+
+    if (!citedNodes.length) {
+      break;
+    }
+
+    const citedDocuments = await mapLimit(citedNodes, 3, async (node) => {
+      try {
+        const document = await fetchWikiDocument(node.nodeToken);
+        return {
+          node,
+          document,
+          url: `${KNOWLEDGE_SOURCE.domain}/docx/${node.nodeToken}`,
+        };
+      } catch (error) {
+        warnings.push(`${node.title}: ${(error as Error).message}`);
+        return {
+          node,
+          document: null,
+          url: `${KNOWLEDGE_SOURCE.domain}/docx/${node.nodeToken}`,
+        };
+      }
+    });
+
+    fetched.push(...citedDocuments);
+    citationSources = citedDocuments.filter((item) => item.document);
+  }
 
   const documents: KnowledgeDocument[] = [];
   const chunks: KnowledgeChunk[] = [];
@@ -92,7 +159,7 @@ async function performSync(): Promise<KnowledgeIndex> {
   const resourceCandidates = [];
 
   for (const item of fetched) {
-    const { node, document } = item;
+    const { node, document, url } = item;
     const existingDocument = previousDocuments.get(node.nodeToken);
 
     if (!document) {
@@ -113,7 +180,6 @@ async function performSync(): Promise<KnowledgeIndex> {
       continue;
     }
 
-    const url = `${KNOWLEDGE_SOURCE.domain}/wiki/${node.nodeToken}`;
     resourceCandidates.push(
       ...extractResourceLinks({
         documentId: node.nodeToken,
