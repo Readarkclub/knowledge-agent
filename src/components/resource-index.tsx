@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   RESOURCE_CATEGORIES,
   type ResourceCategory,
@@ -106,18 +107,21 @@ export function ResourceIndex({
   return (
     <main className="resource-shell">
       <aside className="resource-navigation flex min-h-0 flex-col border-r border-white/[0.07] bg-black/15 px-4 py-5">
-        <div className="flex items-center gap-3 px-1">
-          <div className="grid size-10 place-items-center rounded-xl border border-amber-200/20 bg-amber-200/[0.08] text-amber-200">
-            <BookOpenText className="size-5" />
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-amber-200/20 bg-amber-200/[0.08] text-amber-200">
+              <BookOpenText className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] tracking-[0.22em] text-amber-200/65 uppercase">
+                Renren AI Club
+              </p>
+              <h1 className="mt-0.5 truncate text-[15px] font-semibold tracking-tight">
+                知识库 Agent
+              </h1>
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] tracking-[0.22em] text-amber-200/65 uppercase">
-              Renren AI Club
-            </p>
-            <h1 className="mt-0.5 text-[15px] font-semibold tracking-tight">
-              知识库 Agent
-            </h1>
-          </div>
+          <ThemeToggle />
         </div>
 
         <nav className="mt-7 space-y-1" aria-label="工作区导航">
@@ -203,13 +207,16 @@ export function ResourceIndex({
               </p>
             </div>
           </div>
-          <Link
-            className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-white/52 transition hover:bg-white/[0.05] hover:text-white sm:hidden"
-            href="/"
-          >
-            <Bot className="size-3.5" />
-            问答
-          </Link>
+          <div className="flex items-center gap-2 sm:hidden">
+            <ThemeToggle />
+            <Link
+              className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-white/52 transition hover:bg-white/[0.05] hover:text-white"
+              href="/"
+            >
+              <Bot className="size-3.5" />
+              问答
+            </Link>
+          </div>
         </header>
 
         <div className="resource-workspace relative z-[1] min-h-0 flex-1">

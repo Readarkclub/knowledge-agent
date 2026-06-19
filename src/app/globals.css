@@ -44,6 +44,7 @@
 }
 
 :root {
+  color-scheme: dark;
   --background: oklch(0.135 0.008 78);
   --foreground: oklch(0.94 0.01 82);
   --card: oklch(0.165 0.009 76);
@@ -71,6 +72,47 @@
   --sidebar-accent-foreground: oklch(0.94 0.01 82);
   --sidebar-border: oklch(0.92 0.01 82 / 8%);
   --sidebar-ring: oklch(0.79 0.105 78);
+  --app-radial: oklch(0.3 0.045 76 / 26%);
+  --grid-line: oklch(1 0 0 / 2.6%);
+  --composer: oklch(0.18 0.008 76 / 96%);
+  --drawer: oklch(0.17 0.009 76);
+  --mobile-divider: oklch(0.92 0.01 82 / 8%);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --color-white: oklch(0.22 0.012 76);
+  --color-black: oklch(0.985 0.006 82);
+  --background: oklch(0.975 0.009 82);
+  --foreground: oklch(0.22 0.012 76);
+  --card: oklch(0.995 0.003 82);
+  --card-foreground: oklch(0.22 0.012 76);
+  --popover: oklch(0.995 0.003 82);
+  --popover-foreground: oklch(0.22 0.012 76);
+  --primary: oklch(0.63 0.12 76);
+  --primary-foreground: oklch(0.995 0.003 82);
+  --secondary: oklch(0.935 0.014 82);
+  --secondary-foreground: oklch(0.24 0.012 76);
+  --muted: oklch(0.94 0.012 82);
+  --muted-foreground: oklch(0.5 0.018 76);
+  --accent: oklch(0.91 0.028 78);
+  --accent-foreground: oklch(0.24 0.012 76);
+  --border: oklch(0.32 0.012 76 / 14%);
+  --input: oklch(0.32 0.012 76 / 17%);
+  --ring: oklch(0.63 0.12 76 / 55%);
+  --sidebar: oklch(0.965 0.011 82);
+  --sidebar-foreground: oklch(0.22 0.012 76);
+  --sidebar-primary: oklch(0.63 0.12 76);
+  --sidebar-primary-foreground: oklch(0.995 0.003 82);
+  --sidebar-accent: oklch(0.92 0.02 80);
+  --sidebar-accent-foreground: oklch(0.22 0.012 76);
+  --sidebar-border: oklch(0.32 0.012 76 / 12%);
+  --sidebar-ring: oklch(0.63 0.12 76);
+  --app-radial: oklch(0.82 0.055 78 / 32%);
+  --grid-line: oklch(0.28 0.012 76 / 4.8%);
+  --composer: oklch(0.995 0.003 82 / 96%);
+  --drawer: oklch(0.985 0.006 82);
+  --mobile-divider: oklch(0.32 0.012 76 / 12%);
 }
 
 * {
@@ -88,7 +130,7 @@ body {
   background:
     radial-gradient(
       circle at 48% -8%,
-      oklch(0.3 0.045 76 / 26%),
+      var(--app-radial),
       transparent 34%
     ),
     var(--background);
@@ -110,7 +152,8 @@ textarea {
 .knowledge-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr) 328px;
-  height: 100svh;
+  height: 100dvh;
+  min-height: 100svh;
   min-width: 0;
   overflow: hidden;
 }
@@ -118,7 +161,8 @@ textarea {
 .resource-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
-  height: 100svh;
+  height: 100dvh;
+  min-height: 100svh;
   min-width: 0;
   overflow: hidden;
 }
@@ -137,14 +181,21 @@ textarea {
 
 .fine-grid {
   background-image:
-    linear-gradient(oklch(1 0 0 / 2.6%) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(1 0 0 / 2.6%) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(to bottom, black, transparent 72%);
 }
 
 .soft-enter {
   animation: soft-enter 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.conversation-scroll {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .source-enter {
@@ -214,8 +265,11 @@ textarea {
     display: none;
   }
 
+  .knowledge-main,
   .resource-main {
-    height: 100svh;
+    height: 100dvh;
+    min-height: 100svh;
+    overflow: hidden;
   }
 
   .resource-workspace {
@@ -230,7 +284,7 @@ textarea {
 
   .resource-categories {
     border-right: 0;
-    border-bottom: 1px solid oklch(0.92 0.01 82 / 8%);
+    border-bottom: 1px solid var(--mobile-divider);
   }
 
   .resource-list {

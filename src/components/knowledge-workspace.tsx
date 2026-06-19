@@ -32,6 +32,7 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import type { SearchResult, SyncState } from "@/lib/types";
 
@@ -156,18 +157,21 @@ export function KnowledgeWorkspace({
   return (
     <main className="knowledge-shell">
       <aside className="navigation-panel flex min-h-0 flex-col border-r border-white/[0.07] bg-black/15 px-4 py-5">
-        <div className="flex items-center gap-3 px-1">
-          <div className="grid size-10 place-items-center rounded-xl border border-amber-200/20 bg-amber-200/[0.08] text-amber-200">
-            <BookOpenText className="size-5" />
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-amber-200/20 bg-amber-200/[0.08] text-amber-200">
+              <BookOpenText className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] tracking-[0.22em] text-amber-200/65 uppercase">
+                Renren AI Club
+              </p>
+              <h1 className="mt-0.5 truncate text-[15px] font-semibold tracking-tight">
+                知识库 Agent
+              </h1>
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] tracking-[0.22em] text-amber-200/65 uppercase">
-              Renren AI Club
-            </p>
-            <h1 className="mt-0.5 text-[15px] font-semibold tracking-tight">
-              知识库 Agent
-            </h1>
-          </div>
+          <ThemeToggle />
         </div>
 
         <nav className="mt-7 space-y-1" aria-label="工作区导航">
@@ -266,7 +270,7 @@ export function KnowledgeWorkspace({
         </div>
       </aside>
 
-      <section className="relative flex min-h-0 min-w-0 flex-col">
+      <section className="knowledge-main relative flex min-h-0 min-w-0 flex-col">
         <div className="fine-grid pointer-events-none absolute inset-x-0 top-0 h-72 opacity-35" />
 
         <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-white/[0.065] px-5 sm:px-7">
@@ -286,6 +290,7 @@ export function KnowledgeWorkspace({
             </div>
           </div>
           <div className="flex items-center gap-2 sm:hidden">
+            <ThemeToggle />
             <Link
               aria-label="打开资源索引"
               className="grid size-8 place-items-center rounded-full border border-white/10 text-white/48 transition hover:bg-white/[0.05] hover:text-white"
@@ -305,7 +310,10 @@ export function KnowledgeWorkspace({
         </header>
 
         <Conversation className="relative z-[1]">
-          <ConversationContent className="mx-auto min-h-full w-full max-w-3xl gap-7 px-5 pb-36 pt-8 sm:px-8 sm:pt-12">
+          <ConversationContent
+            className="mx-auto min-h-full w-full max-w-3xl gap-7 px-5 pb-36 pt-8 sm:px-8 sm:pt-12"
+            scrollClassName="conversation-scroll"
+          >
             {messages.length === 0 ? (
               <div className="soft-enter flex min-h-[62vh] flex-col justify-center">
                 <div className="mb-7 flex items-center gap-3">
@@ -370,7 +378,7 @@ export function KnowledgeWorkspace({
                     }
                   >
                     {message.role === "assistant" ? (
-                      <MessageResponse className="prose-invert max-w-none [&_a]:text-amber-200 [&_a]:underline-offset-4 [&_h3]:mt-7 [&_h3]:text-base [&_li]:my-1">
+                      <MessageResponse className="max-w-none dark:prose-invert [&_a]:text-amber-200 [&_a]:underline-offset-4 [&_h3]:mt-7 [&_h3]:text-base [&_li]:my-1">
                         {messageText(message)}
                       </MessageResponse>
                     ) : (
@@ -403,7 +411,7 @@ export function KnowledgeWorkspace({
             className="mx-auto max-w-3xl"
             onSubmit={handleSubmit}
           >
-            <div className="relative rounded-2xl border border-white/[0.11] bg-[#1b1a17]/95 shadow-[0_24px_80px_rgba(0,0,0,0.34)] transition focus-within:border-amber-200/30">
+            <div className="relative rounded-2xl border border-white/[0.11] bg-[color:var(--composer)] shadow-[0_24px_80px_rgba(0,0,0,0.18)] transition focus-within:border-amber-200/30">
               <textarea
                 className="block min-h-14 max-h-36 w-full resize-none bg-transparent px-4 pb-3 pt-4 pr-14 text-[14px] leading-6 text-white/88 outline-none placeholder:text-white/28"
                 disabled={isBusy}
@@ -451,7 +459,7 @@ export function KnowledgeWorkspace({
 
       {mobileSourcesOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm sm:hidden">
-          <div className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[#171612] p-5 shadow-2xl">
+          <div className="absolute inset-x-0 bottom-0 max-h-[82svh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[color:var(--drawer)] p-5 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">检索证据</p>
