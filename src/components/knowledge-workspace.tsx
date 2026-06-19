@@ -452,6 +452,8 @@ export function KnowledgeWorkspace({
       </section>
 
       <SourcePanel
+        onSearch={runSearch}
+        searching={searching}
         semanticSearchEnabled={semanticSearchEnabled}
         sources={sources}
         sync={sync}
@@ -484,14 +486,29 @@ export function KnowledgeWorkspace({
 }
 
 function SourcePanel({
+  onSearch,
+  searching,
   semanticSearchEnabled,
   sources,
   sync,
 }: {
+  onSearch: (query: string) => void;
+  searching: boolean;
   semanticSearchEnabled: boolean;
   sources: SearchResult[];
   sync: SyncState;
 }) {
+  const [evidenceQuery, setEvidenceQuery] = useState("");
+
+  function handleEvidenceSearch(event: FormEvent) {
+    event.preventDefault();
+    const query = evidenceQuery.trim();
+    if (!query) {
+      return;
+    }
+    onSearch(query);
+  }
+
   return (
     <aside className="source-panel min-h-0 overflow-y-auto border-l border-white/[0.07] bg-black/10 px-5 py-5">
       <div className="flex items-center justify-between">
@@ -501,10 +518,22 @@ function SourcePanel({
           </p>
           <h2 className="mt-1.5 text-sm font-medium text-white/82">检索证据</h2>
         </div>
-        <div className="grid size-8 place-items-center rounded-full border border-white/8 text-white/35">
-          <Search className="size-3.5" />
-        </div>
       </div>
+
+      <form onSubmit={handleEvidenceSearch} className="mt-4">
+        <div className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-2 focus-within:border-amber-200/30">
+          <Search className="size-3.5 shrink-0 text-white/30" />
+          <input
+            className="min-w-0 flex-1 bg-transparent text-[12px] text-white/70 placeholder:text-white/25 focus:outline-none"
+            onChange={(event) => setEvidenceQuery(event.target.value)}
+            placeholder="输入关键词搜索证据"
+            value={evidenceQuery}
+          />
+          {searching ? (
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin text-white/40" />
+          ) : null}
+        </div>
+      </form>
 
       <div className="mt-5 flex items-center gap-2 border-y border-white/[0.065] py-3 text-[11px] text-white/36">
         {semanticSearchEnabled && sync.embeddedChunkCount > 0 ? (

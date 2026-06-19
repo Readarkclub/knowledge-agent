@@ -77,6 +77,93 @@ export function isLatestWeeklyReportIdentityQuery(query: string): boolean {
   return /(哪|哪个|哪期|日期|时间|什么时候|一期|是)/.test(normalized);
 }
 
+export type MonthFilter = {
+  year: number;
+  month: number;
+};
+
+export function parseMonthFilter(query: string): MonthFilter | null {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+
+  const full = normalized.match(/(\d{4})年(\d{1,2})月/);
+  if (full) {
+    const year = Number(full[1]);
+    const month = Number(full[2]);
+    if (month >= 1 && month <= 12) {
+      return { year, month };
+    }
+  }
+
+  const short = normalized.match(/(\d{1,2})月份?/);
+  if (short) {
+    const month = Number(short[1]);
+    if (month >= 1 && month <= 12) {
+      const year = new Date().getFullYear();
+      return { year, month };
+    }
+  }
+
+  return null;
+}
+
+export function isWeeklyReportCountQuery(query: string): boolean {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+
+  if (!parseMonthFilter(query)) {
+    return false;
+  }
+
+  if (!/(周报|报告)/.test(normalized)) {
+    return false;
+  }
+
+  return /(几份|多少份|有多少|有几份|几期|几条|数量|多少篇|有几篇|多少个|有几个)/.test(normalized);
+}
+
+export function countWeeklyReports(
+  index: KnowledgeIndex,
+  filter: MonthFilter
+): LatestWeeklyReport[] {
+  const today = Date.now();
+
+  return index.documents
+    .map((document) => ({
+      document,
+      range: parseWeeklyReportRange(document.title),
+    }))
+    .filter((item): item is LatestWeeklyReport => Boolean(item.range))
+    .filter((item) => {
+      const start = new Date(item.range.startTime);
+      return (
+        start.getUTCFullYear() === filter.year &&
+        start.getUTCMonth() + 1 === filter.month &&
+        item.range.startTime <= today
+      );
+    })
+    .sort((left, right) => left.range.startTime - right.range.startTime);
+}
+
+export function buildWeeklyReportCountAnswer(
+  reports: LatestWeeklyReport[],
+  filter: MonthFilter,
+  today = new Date()
+): string {
+  const todayStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+
+  if (reports.length === 0) {
+    return `截至${todayStr}，知识库中${filter.year}年${filter.month}月还没有已收录的周报。`;
+  }
+
+  const lines = reports.map((item, index) => {
+    const { document, range } = item;
+    return `${index + 1}. [${document.title}](${document.url})（${formatChineseDate(range.start)}至${formatChineseDate(range.end)}）`;
+  });
+
+  return `截至${todayStr}，知识库中${filter.year}年${filter.month}月的周报共有 **${reports.length}** 份：
+
+${lines.join("\n")}`;
+}
+
 export function findLatestWeeklyReport(
   index: KnowledgeIndex
 ): LatestWeeklyReport | null {
