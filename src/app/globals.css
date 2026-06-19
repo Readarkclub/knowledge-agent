@@ -113,6 +113,76 @@
   --composer: oklch(0.995 0.003 82 / 96%);
   --drawer: oklch(0.985 0.006 82);
   --mobile-divider: oklch(0.32 0.012 76 / 12%);
+  --light-text-subtle: oklch(0.46 0.012 76);
+  --light-text-muted: oklch(0.38 0.012 76);
+  --light-text-secondary: oklch(0.3 0.012 76);
+  --light-accent: oklch(0.48 0.115 75);
+  --light-success: oklch(0.46 0.12 157);
+}
+
+[data-theme="light"] :is(
+  [class~="text-white/18"],
+  [class~="text-white/20"],
+  [class~="text-white/22"],
+  [class~="text-white/25"],
+  [class~="text-white/28"],
+  [class~="text-white/30"],
+  [class~="text-white/32"]
+) {
+  color: var(--light-text-subtle);
+}
+
+[data-theme="light"] :is(
+  [class~="text-white/35"],
+  [class~="text-white/36"],
+  [class~="text-white/37"],
+  [class~="text-white/38"],
+  [class~="text-white/40"],
+  [class~="text-white/42"],
+  [class~="text-white/43"],
+  [class~="text-white/45"],
+  [class~="text-white/48"]
+) {
+  color: var(--light-text-muted);
+}
+
+[data-theme="light"] :is(
+  [class~="text-white/50"],
+  [class~="text-white/52"],
+  [class~="text-white/55"],
+  [class~="text-white/58"],
+  [class~="text-white/60"],
+  [class~="text-white/65"],
+  [class~="text-white/66"],
+  [class~="text-white/72"]
+) {
+  color: var(--light-text-secondary);
+}
+
+[data-theme="light"] :is(
+  [class~="text-amber-100"],
+  [class~="text-amber-200"],
+  [class~="text-amber-200/48"],
+  [class~="text-amber-200/52"],
+  [class~="text-amber-200/55"],
+  [class~="text-amber-200/60"],
+  [class~="text-amber-200/65"],
+  [class~="text-amber-200/70"],
+  [class~="text-amber-200/75"]
+) {
+  color: var(--light-accent);
+}
+
+[data-theme="light"] :is(
+  [class~="text-emerald-300"],
+  [class~="text-emerald-300/70"]
+) {
+  color: var(--light-success);
+}
+
+[data-theme="light"] [class~="placeholder:text-white/28"]::placeholder {
+  color: var(--light-text-subtle);
+  opacity: 1;
 }
 
 * {
