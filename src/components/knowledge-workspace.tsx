@@ -280,7 +280,8 @@ export function KnowledgeWorkspace({
               </p>
               <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/38">
                 <Sparkles className="size-3 text-amber-200/75" />
-                Hybrid retrieval · 引用可追溯
+                {semanticSearchEnabled ? "Hybrid retrieval" : "Keyword retrieval"} ·
+                引用可追溯
               </p>
             </div>
           </div>
