@@ -177,6 +177,34 @@ const TRACKING_PARAMETERS = new Set([
   "srcid",
 ]);
 
+const SENSITIVE_PARAMETERS = new Set([
+  "access_token",
+  "api_key",
+  "apikey",
+  "auth",
+  "authorization",
+  "code",
+  "credential",
+  "key",
+  "password",
+  "refresh_token",
+  "secret",
+  "sig",
+  "signature",
+  "token",
+]);
+
+function isSensitiveParameter(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return (
+    SENSITIVE_PARAMETERS.has(normalized) ||
+    normalized.startsWith("x-amz-") ||
+    normalized.startsWith("x-goog-") ||
+    normalized.endsWith("_token") ||
+    normalized.endsWith("_signature")
+  );
+}
+
 function cleanUrl(value: string): string {
   return value
     .trim()
@@ -184,7 +212,7 @@ function cleanUrl(value: string): string {
     .replace(/[)）\]】}>》，。；;！!？?、]+$/g, "");
 }
 
-function canonicalizeUrl(value: string): string | null {
+export function sanitizeResourceUrl(value: string): string | null {
   try {
     const url = new URL(cleanUrl(value));
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -193,7 +221,12 @@ function canonicalizeUrl(value: string): string | null {
 
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {
-      if (key.toLowerCase().startsWith("utm_") || TRACKING_PARAMETERS.has(key)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey.startsWith("utm_") ||
+        TRACKING_PARAMETERS.has(normalizedKey) ||
+        isSensitiveParameter(normalizedKey)
+      ) {
         url.searchParams.delete(key);
       }
     }
@@ -209,7 +242,7 @@ function canonicalizeUrl(value: string): string | null {
 }
 
 function isResourceUrl(url: string, documentUrl: string): boolean {
-  if (url === canonicalizeUrl(documentUrl)) {
+  if (url === sanitizeResourceUrl(documentUrl)) {
     return false;
   }
 
@@ -323,7 +356,7 @@ function candidateFromMatch({
   context: string;
   input: ExtractResourceInput;
 }): ResourceCandidate | null {
-  const normalizedUrl = canonicalizeUrl(rawUrl);
+  const normalizedUrl = sanitizeResourceUrl(rawUrl);
   if (!normalizedUrl || !isResourceUrl(normalizedUrl, input.documentUrl)) {
     return null;
   }

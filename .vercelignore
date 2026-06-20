@@ -1,5 +1,7 @@
 .cache
 .next
+.env*
+.vercel-cli-auth
 node_modules
 desktop-answer.png
 mobile-evidence.png

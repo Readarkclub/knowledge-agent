@@ -41,6 +41,7 @@ yarn-error.log*
 # private local knowledge index
 /data/index.json
 /data/index.json.tmp
+/data/reembed-progress.jsonl
 /.cache/
 /dev-server*.log
 /chat-*.txt

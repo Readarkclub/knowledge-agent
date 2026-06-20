@@ -33,6 +33,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LogoutButton } from "@/components/logout-button";
 import { Button } from "@/components/ui/button";
 import type { SearchResult, SyncState } from "@/lib/types";
 
@@ -60,6 +61,19 @@ function messageText(message: UIMessage): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("");
+}
+
+function displayErrorMessage(value?: string): string {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(value) as { error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : value;
+  } catch {
+    return value;
+  }
 }
 
 type KnowledgeWorkspaceProps = {
@@ -171,7 +185,10 @@ export function KnowledgeWorkspace({
               </h1>
             </div>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <LogoutButton />
+          </div>
         </div>
 
         <nav className="mt-7 space-y-1" aria-label="工作区导航">
@@ -291,6 +308,7 @@ export function KnowledgeWorkspace({
           </div>
           <div className="flex items-center gap-2 sm:hidden">
             <ThemeToggle />
+            <LogoutButton />
             <Link
               aria-label="打开资源索引"
               className="grid size-8 place-items-center rounded-full border border-white/10 text-white/48 transition hover:bg-white/[0.05] hover:text-white"
@@ -309,7 +327,7 @@ export function KnowledgeWorkspace({
           </div>
         </header>
 
-        <Conversation className="relative z-[1]">
+        <Conversation className="relative">
           <ConversationContent
             className="mx-auto min-h-full w-full max-w-3xl gap-7 px-5 pb-36 pt-8 sm:px-8 sm:pt-12"
             scrollClassName="conversation-scroll"
@@ -397,13 +415,21 @@ export function KnowledgeWorkspace({
             )}
 
             {(error || localError) && (
-              <div className="flex items-start gap-3 rounded-xl border border-red-300/15 bg-red-300/[0.055] px-4 py-3 text-xs leading-5 text-red-100/75">
+              <div className="chat-error flex items-start gap-3 rounded-xl border border-red-300/15 bg-red-300/[0.055] px-4 py-3 text-xs leading-5 text-red-100/75">
                 <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                {localError || error?.message}
+                {displayErrorMessage(localError || error?.message)}
               </div>
             )}
           </ConversationContent>
-          <ConversationScrollButton className="bottom-28 border-white/10 bg-stone-900/90 text-white/60" />
+          <ConversationScrollButton
+            className="bottom-28 !size-11 transition-transform hover:scale-105 active:scale-95"
+            style={{
+              background: "var(--scroll-button-bg)",
+              borderColor: "var(--scroll-button-border)",
+              boxShadow: "var(--scroll-button-shadow)",
+              color: "var(--scroll-button-fg)",
+            }}
+          />
         </Conversation>
 
         <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent px-4 pb-4 pt-12 sm:px-7 sm:pb-6">

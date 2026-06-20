@@ -78,18 +78,20 @@ export const ConversationScrollButton = ({
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
 
   const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
+    void scrollToBottom({ ignoreEscapes: true });
   }, [scrollToBottom]);
 
   return (
     !isAtBottom && (
       <Button
         className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
+          "absolute bottom-4 left-[50%] z-30 translate-x-[-50%] rounded-full",
           className
         )}
+        aria-label="滚动到最新消息"
         onClick={handleScrollToBottom}
         size="icon"
+        title="滚动到最新消息"
         type="button"
         variant="outline"
         {...props}

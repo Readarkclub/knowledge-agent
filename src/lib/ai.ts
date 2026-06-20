@@ -1,19 +1,31 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { DEFAULT_MODEL, ZHIPU_BASE_URL } from "@/lib/config";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { DEFAULT_MODEL } from "@/lib/config";
 import { getServerEnv } from "@/lib/server-env";
 
+export function getGeminiBaseURL(): string {
+  const gateway = (
+    getServerEnv("GEMINI_GATEWAY_URL") ||
+    "https://generativelanguage.googleapis.com"
+  ).replace(/\/+$/, "");
+
+  return gateway.endsWith("/v1beta1")
+    ? gateway
+    : `${gateway}/v1beta1`;
+}
+
 export function getKnowledgeModel() {
-  const apiKey = getServerEnv("ZHIPU_API_KEY");
+  const apiKey = getServerEnv("API_SECRET_KEY");
   if (!apiKey) {
-    throw new Error("ZHIPU_API_KEY 未配置，无法生成回答。");
+    throw new Error("API_SECRET_KEY 未配置，无法生成回答。");
   }
 
-  const zhipu = createOpenAICompatible({
-    name: "zhipu",
+  const google = createGoogleGenerativeAI({
     apiKey,
-    baseURL: getServerEnv("AI_BASE_URL") || ZHIPU_BASE_URL,
-    includeUsage: true,
+    baseURL: getGeminiBaseURL(),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
   });
 
-  return zhipu(getServerEnv("AI_MODEL") || DEFAULT_MODEL);
+  return google(getServerEnv("AI_MODEL") || DEFAULT_MODEL);
 }

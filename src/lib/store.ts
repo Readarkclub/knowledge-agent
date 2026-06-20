@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { KNOWLEDGE_SOURCE } from "@/lib/config";
+import { sanitizeResourceUrl } from "@/lib/resources";
 import type { KnowledgeIndex } from "@/lib/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -32,9 +33,47 @@ export async function readIndex(): Promise<KnowledgeIndex> {
   try {
     const raw = await fs.readFile(INDEX_PATH, "utf8");
     const parsed = JSON.parse(raw) as KnowledgeIndex;
+    const resources = new Map<
+      string,
+      KnowledgeIndex["resources"][number]
+    >();
+    for (const resource of parsed.resources || []) {
+      const sanitizedUrl = sanitizeResourceUrl(resource.url);
+      if (!sanitizedUrl) {
+        continue;
+      }
+
+      const sanitized = {
+        ...resource,
+        url: sanitizedUrl,
+        normalizedUrl: sanitizedUrl,
+        mentions: resource.mentions.map((mention) => ({
+          ...mention,
+          documentUrl:
+            sanitizeResourceUrl(mention.documentUrl) ||
+            KNOWLEDGE_SOURCE.rootUrl,
+        })),
+      };
+      const existing = resources.get(sanitizedUrl);
+      if (existing) {
+        existing.mentions.push(
+          ...sanitized.mentions.filter(
+            (mention) =>
+              !existing.mentions.some(
+                (current) =>
+                  current.documentId === mention.documentId &&
+                  current.context === mention.context
+              )
+          )
+        );
+      } else {
+        resources.set(sanitizedUrl, sanitized);
+      }
+    }
+
     return {
       ...parsed,
-      resources: parsed.resources || [],
+      resources: [...resources.values()],
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
