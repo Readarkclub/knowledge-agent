@@ -33,6 +33,17 @@ type LocalExtractor = (
 
 let localExtractorPromise: Promise<LocalExtractor> | null = null;
 
+export const ZHIPU_EMBEDDING_DIMENSIONS = 512;
+
+export function buildZhipuEmbeddingRequest(texts: string[]) {
+  return {
+    model:
+      getServerEnv("EMBEDDING_MODEL") || DEFAULT_EMBEDDING_MODEL,
+    input: texts,
+    dimensions: ZHIPU_EMBEDDING_DIMENSIONS,
+  };
+}
+
 function selectedProvider(): "local" | "gemini" | "zhipu" {
   const requested = getServerEnv("EMBEDDING_PROVIDER")?.toLowerCase();
   if (requested === "gemini" || requested === "zhipu") {
@@ -171,12 +182,7 @@ async function embedWithZhipu(texts: string[]): Promise<number[][]> {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model:
-        getServerEnv("EMBEDDING_MODEL") || DEFAULT_EMBEDDING_MODEL,
-      input: texts,
-      dimensions: RETRIEVAL.embeddingDimensions,
-    }),
+    body: JSON.stringify(buildZhipuEmbeddingRequest(texts)),
   });
 
   if (!response.ok) {

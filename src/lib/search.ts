@@ -1,10 +1,61 @@
 import { tokenize } from "@/lib/chunking";
+import { RETRIEVAL } from "@/lib/config";
 import { embedTexts } from "@/lib/embeddings";
 import type {
   KnowledgeChunk,
   KnowledgeIndex,
   SearchResult,
 } from "@/lib/types";
+
+const QUERY_NOISE =
+  /(请问|请帮我|帮我|麻烦|能否|可以|一下|相关|关于|当前|目前|最近|近期|群里面|群里|群中|聊天中|讨论了|讨论|分享了什么|分享了|有哪些|有哪几|哪几个|哪一些|什么内容|什么|如何|怎么|怎样|为何|为什么|是否|有没有|告诉我|列出|整理|总结|查看)/g;
+const MINIMUM_RERANK_SCORE = 0.6;
+
+function queryTerms(query: string): string[] {
+  const cleaned = query
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(QUERY_NOISE, " ");
+
+  return [
+    ...new Set(
+      tokenize(cleaned).filter(
+        (term) =>
+          /^[a-z0-9]/.test(term) ||
+          (/^[\u3400-\u9fff]+$/.test(term) && term.length >= 2)
+      )
+    ),
+  ];
+}
+
+function minimumMatchedTerms(termCount: number): number {
+  if (termCount <= 2) {
+    return 1;
+  }
+  if (termCount <= 7) {
+    return 2;
+  }
+  return Math.max(3, Math.ceil(termCount * 0.25));
+}
+
+function longestMatchedRun(
+  terms: string[],
+  chunkTokenSet: Set<string>
+): number {
+  let longest = 0;
+  let current = 0;
+
+  for (const term of terms) {
+    if (chunkTokenSet.has(term)) {
+      current += 1;
+      longest = Math.max(longest, current);
+    } else {
+      current = 0;
+    }
+  }
+
+  return longest;
+}
 
 function cosineSimilarity(left: number[], right: number[]): number {
   if (!left.length || left.length !== right.length) {
@@ -101,12 +152,12 @@ function excerpt(content: string, query: string): string {
     }
   }
 
-  if (position < 0 || compact.length <= 260) {
-    return compact.slice(0, 280);
+  if (position < 0 || compact.length <= 500) {
+    return compact.slice(0, 520);
   }
 
-  const start = Math.max(0, position - 90);
-  const end = Math.min(compact.length, start + 280);
+  const start = Math.max(0, position - 160);
+  const end = Math.min(compact.length, start + 520);
   return `${start > 0 ? "…" : ""}${compact.slice(start, end)}${
     end < compact.length ? "…" : ""
   }`;
@@ -116,10 +167,14 @@ export function searchIndex(
   index: KnowledgeIndex,
   query: string,
   queryEmbedding?: number[],
-  limit = 8
+  limit: number = RETRIEVAL.maxResults
 ): SearchResult[] {
-  const queryTokens = tokenize(query);
-  const lexicalRaw = bm25Scores(index.chunks, queryTokens);
+  const terms = queryTerms(query);
+  if (!terms.length) {
+    return [];
+  }
+
+  const lexicalRaw = bm25Scores(index.chunks, terms);
   const semanticRaw = index.chunks.map((chunk) =>
     chunk.embedding && queryEmbedding
       ? cosineSimilarity(chunk.embedding, queryEmbedding)
@@ -131,19 +186,26 @@ export function searchIndex(
 
   const ranked = index.chunks
     .map((chunk, position) => {
-      const exactTitle = loweredQuery
-        .split(/\s+/)
-        .some(
-          (term) =>
-            term.length >= 2 &&
-            chunk.title.normalize("NFKC").toLowerCase().includes(term)
-        );
+      const chunkTokenSet = new Set(chunk.tokens);
+      const matchedTerms = terms.filter((term) =>
+        chunkTokenSet.has(term)
+      ).length;
+      const title = chunk.title.normalize("NFKC").toLowerCase();
+      const titleMatches = terms.filter((term) =>
+        title.includes(term)
+      ).length;
+      const matchedRun = longestMatchedRun(terms, chunkTokenSet);
       const exactContent = loweredQuery.length >= 3 &&
         chunk.contextualText
           .normalize("NFKC")
           .toLowerCase()
           .includes(loweredQuery);
-      const exactBoost = (exactTitle ? 0.1 : 0) + (exactContent ? 0.14 : 0);
+      const termCoverage = matchedTerms / terms.length;
+      const titleCoverage = titleMatches / terms.length;
+      const exactBoost =
+        Math.min(0.2, termCoverage * 0.2) +
+        Math.min(0.12, titleCoverage * 0.12) +
+        (exactContent ? 0.14 : 0);
       const hasSemantic = Boolean(queryEmbedding && chunk.embedding);
       const score =
         (hasSemantic ? lexical[position] * 0.42 : lexical[position]) +
@@ -155,16 +217,28 @@ export function searchIndex(
         score,
         lexicalScore: lexical[position],
         semanticScore: semantic[position],
+        matchedTerms,
+        matchedRun,
+        termCoverage,
+        titleMatches,
+        exactContent,
       };
     })
-    .filter((item) => item.score > 0)
+    .filter(
+      (item) =>
+        item.exactContent ||
+        (item.matchedTerms >= minimumMatchedTerms(terms.length) &&
+          (terms.length < 4 ||
+            (item.termCoverage >= 0.45 &&
+              (item.matchedRun >= 2 || item.titleMatches >= 2))))
+    )
     .sort((left, right) => right.score - left.score);
 
   const selected: typeof ranked = [];
   const perDocument = new Map<string, number>();
   for (const item of ranked) {
     const count = perDocument.get(item.chunk.documentId) || 0;
-    if (count >= 2) {
+    if (count >= RETRIEVAL.maxResultsPerDocument) {
       continue;
     }
     selected.push(item);
@@ -175,24 +249,26 @@ export function searchIndex(
   }
 
   const topScore = selected[0]?.score || 1;
-  return selected.map(({ chunk, score, lexicalScore, semanticScore }) => ({
-    id: chunk.id,
-    documentId: chunk.documentId,
-    title: chunk.title,
-    parentTitle: chunk.parentTitle,
-    heading: chunk.heading,
-    url: chunk.url,
-    excerpt: excerpt(chunk.content, query),
-    score: Math.min(0.99, score / topScore),
-    lexicalScore,
-    semanticScore,
-  }));
+  return selected
+    .map(({ chunk, score, lexicalScore, semanticScore }) => ({
+      id: chunk.id,
+      documentId: chunk.documentId,
+      title: chunk.title,
+      parentTitle: chunk.parentTitle,
+      heading: chunk.heading,
+      url: chunk.url,
+      excerpt: excerpt(chunk.content, query),
+      score: Math.min(0.99, score / topScore),
+      lexicalScore,
+      semanticScore,
+    }))
+    .filter((item) => item.score >= MINIMUM_RERANK_SCORE);
 }
 
 export async function searchKnowledge(
   index: KnowledgeIndex,
   query: string,
-  limit = 8
+  limit: number = RETRIEVAL.maxResults
 ): Promise<SearchResult[]> {
   let queryEmbedding: number[] | undefined;
   const queryEmbeddingsEnabled =

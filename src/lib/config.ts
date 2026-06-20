@@ -8,15 +8,15 @@ export const KNOWLEDGE_SOURCE = {
 } as const;
 
 export const RETRIEVAL = {
-  maxResults: 8,
-  maxResultsPerDocument: 2,
-  contextResults: 6,
+  maxResults: 12,
+  maxResultsPerDocument: 3,
+  contextResults: 9,
   chunkSize: 430,
   chunkOverlap: 70,
   embeddingDimensions: 384,
 } as const;
 
-export const DEFAULT_MODEL = "glm-4.7-flash";
+export const DEFAULT_MODEL = "gemini-2.5-flash";
 export const DEFAULT_EMBEDDING_MODEL = "embedding-3";
 export const DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2";
 export const DEFAULT_LOCAL_EMBEDDING_MODEL =

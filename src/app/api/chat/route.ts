@@ -5,21 +5,40 @@ import {
   streamText,
   type UIMessage,
 } from "ai";
+import type { GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { getKnowledgeModel } from "@/lib/ai";
+import {
+  guardApiRequest,
+  rateLimitHeaders,
+} from "@/lib/api-security";
 import { RETRIEVAL } from "@/lib/config";
 import { buildKnowledgeSystemPrompt } from "@/lib/prompt";
 import {
+  chatRequestSchema,
+  parseJsonRequest,
+} from "@/lib/request-validation";
+import {
   buildLatestWeeklyReportAnswer,
+  buildRecentWeeklyReportListAnswer,
   buildWeeklyReportCountAnswer,
+  buildWeeklyReportListAnswer,
   countWeeklyReports,
   findLatestWeeklyReport,
+  findRecentWeeklyReports,
   isLatestWeeklyReportIdentityQuery,
   isLatestWeeklyReportQuery,
+  isRecentWeeklyReportListQuery,
   isWeeklyReportCountQuery,
+  isWeeklyReportListQuery,
   latestWeeklyReportSources,
   parseMonthFilter,
+  parseRecentWeeklyReportLimit,
 } from "@/lib/reports";
 import { searchKnowledge } from "@/lib/search";
+import {
+  internalErrorResponse,
+  reportServerError,
+} from "@/lib/server-errors";
 import { readIndex } from "@/lib/store";
 import { createTrace } from "@/lib/trace";
 
@@ -34,7 +53,11 @@ export const maxDuration = 60;
  */
 const EVIDENCE_EMPTY_THRESHOLD = 0;
 
-function streamTextAnswer(answer: string, id: string) {
+function streamTextAnswer(
+  answer: string,
+  id: string,
+  headers: HeadersInit = {}
+) {
   const stream = createUIMessageStream({
     execute({ writer }) {
       writer.write({ type: "text-start", id });
@@ -42,7 +65,10 @@ function streamTextAnswer(answer: string, id: string) {
       writer.write({ type: "text-end", id });
     },
   });
-  return createUIMessageStreamResponse({ stream });
+  const response = createUIMessageStreamResponse({ stream });
+  const responseHeaders = new Headers(headers);
+  responseHeaders.forEach((value, key) => response.headers.set(key, value));
+  return response;
 }
 
 function getLatestUserText(messages: UIMessage[]): string {
@@ -61,8 +87,22 @@ function getLatestUserText(messages: UIMessage[]): string {
 
 export async function POST(request: Request) {
   let trace = createTrace("");
+  const requestId = crypto.randomUUID();
   try {
-    const { messages }: { messages: UIMessage[] } = await request.json();
+    const guard = guardApiRequest(request, "chat", {
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+    });
+    if ("response" in guard) {
+      return guard.response;
+    }
+    const headers = rateLimitHeaders(guard.rateLimit);
+
+    const parsed = await parseJsonRequest(request, chatRequestSchema);
+    if ("response" in parsed) {
+      return parsed.response;
+    }
+    const messages = parsed.data.messages as UIMessage[];
     const query = getLatestUserText(messages);
     if (!query) {
       return Response.json({ error: "没有可处理的问题" }, { status: 400 });
@@ -70,6 +110,51 @@ export async function POST(request: Request) {
 
     trace = createTrace(query);
     const index = await readIndex();
+    const monthFilter = parseMonthFilter(query);
+    const recentReportLimit = parseRecentWeeklyReportLimit(query);
+
+    if (
+      recentReportLimit &&
+      isRecentWeeklyReportListQuery(query)
+    ) {
+      const reports = findRecentWeeklyReports(index, recentReportLimit);
+      const answer = buildRecentWeeklyReportListAnswer(
+        reports,
+        recentReportLimit
+      );
+      trace.finish({
+        route: "recent-weekly-report-list",
+        evidenceCount: reports.length,
+        topScore: reports.length ? 1 : 0,
+        topTitles: reports.map((r) => r.document.title).slice(0, 3),
+      });
+      return streamTextAnswer(answer, "recent-weekly-report-list", headers);
+    }
+
+    if (monthFilter && isWeeklyReportCountQuery(query)) {
+      const reports = countWeeklyReports(index, monthFilter);
+      const answer = buildWeeklyReportCountAnswer(reports, monthFilter);
+      trace.finish({
+        route: "weekly-report-count",
+        evidenceCount: reports.length,
+        topScore: reports.length ? 1 : 0,
+        topTitles: reports.map((r) => r.document.title).slice(0, 3),
+      });
+      return streamTextAnswer(answer, "weekly-report-count", headers);
+    }
+
+    if (monthFilter && isWeeklyReportListQuery(query)) {
+      const reports = countWeeklyReports(index, monthFilter);
+      const answer = buildWeeklyReportListAnswer(reports, monthFilter);
+      trace.finish({
+        route: "weekly-report-list",
+        evidenceCount: reports.length,
+        topScore: reports.length ? 1 : 0,
+        topTitles: reports.map((r) => r.document.title).slice(0, 3),
+      });
+      return streamTextAnswer(answer, "weekly-report-list", headers);
+    }
+
     const latestReportQuery = isLatestWeeklyReportQuery(query);
     const latestReport = latestReportQuery
       ? findLatestWeeklyReport(index)
@@ -81,21 +166,6 @@ export async function POST(request: Request) {
     const topScore = sources[0]?.score ?? 0;
     const topTitles = sources.slice(0, 3).map((s) => s.title);
 
-    if (isWeeklyReportCountQuery(query)) {
-      const filter = parseMonthFilter(query);
-      if (filter) {
-        const reports = countWeeklyReports(index, filter);
-        const answer = buildWeeklyReportCountAnswer(reports, filter);
-        trace.finish({
-          route: "weekly-report-count",
-          evidenceCount: reports.length,
-          topScore: 0,
-          topTitles: reports.map((r) => r.document.title).slice(0, 3),
-        });
-        return streamTextAnswer(answer, "weekly-report-count");
-      }
-    }
-
     if (latestReport && isLatestWeeklyReportIdentityQuery(query)) {
       const answer = buildLatestWeeklyReportAnswer(latestReport);
       trace.finish({
@@ -104,7 +174,7 @@ export async function POST(request: Request) {
         topScore: 1,
         topTitles: [latestReport.document.title],
       });
-      return streamTextAnswer(answer, "latest-weekly-report");
+      return streamTextAnswer(answer, "latest-weekly-report", headers);
     }
 
     // 低证据关卡：检索为空时直接返回"未找到"，不进 LLM。
@@ -117,7 +187,7 @@ export async function POST(request: Request) {
         topScore,
         topTitles,
       });
-      return streamTextAnswer(answer, "evidence-empty");
+      return streamTextAnswer(answer, "evidence-empty", headers);
     }
 
     trace.finish({
@@ -133,16 +203,19 @@ export async function POST(request: Request) {
       messages: await convertToModelMessages(messages),
       maxOutputTokens: 4096,
       providerOptions: {
-        zhipu: {
-          thinking: {
-            type: "disabled",
+        google: {
+          thinkingConfig: {
+            thinkingBudget: 0,
           },
-        },
+        } satisfies GoogleLanguageModelOptions,
       },
       temperature: 0.2,
     });
 
-    return result.toUIMessageStreamResponse();
+    const response = result.toUIMessageStreamResponse();
+    const responseHeaders = new Headers(headers);
+    responseHeaders.forEach((value, key) => response.headers.set(key, value));
+    return response;
   } catch (error) {
     trace.finish({
       route: "llm",
@@ -150,11 +223,7 @@ export async function POST(request: Request) {
       topScore: 0,
       topTitles: [],
     });
-    return Response.json(
-      {
-        error: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    reportServerError("chat", error, requestId);
+    return internalErrorResponse(requestId);
   }
 }

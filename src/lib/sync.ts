@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { extractWeeklyReportCitations } from "@/lib/citations";
+import {
+  extractWeeklyReportCitations,
+  isCitationAllowed,
+  parseCitationAllowlist,
+} from "@/lib/citations";
 import { KNOWLEDGE_SOURCE } from "@/lib/config";
 import { chunkDocument } from "@/lib/chunking";
 import {
@@ -76,6 +80,12 @@ async function performSync(): Promise<KnowledgeIndex> {
   const titleByNodeToken = new Map(
     allNodes.map((node) => [node.nodeToken, node.title])
   );
+  const wikiTokens = new Set(
+    allNodes.flatMap((node) => [node.nodeToken, node.objToken])
+  );
+  const citationAllowlist = parseCitationAllowlist(
+    process.env.KNOWLEDGE_ALLOWED_CITATION_DOC_IDS
+  );
   const warnings: string[] = [];
 
   const fetched = await mapLimit(documentNodes, 3, async (node) => {
@@ -108,6 +118,10 @@ async function performSync(): Promise<KnowledgeIndex> {
       for (const citation of extractWeeklyReportCitations(
         source.document?.markdown || ""
       )) {
+        if (!isCitationAllowed(citation.docId, wikiTokens, citationAllowlist)) {
+          warnings.push(`已忽略未授权的外部引用：${citation.title}`);
+          continue;
+        }
         if (seenDocumentTokens.has(citation.docId)) {
           continue;
         }

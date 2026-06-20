@@ -11,7 +11,7 @@
     "test": "node --test --import tsx tests/*.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^2.0.51",
+    "@ai-sdk/google": "^3.0.83",
     "@ai-sdk/react": "^3.0.210",
     "@huggingface/transformers": "^4.2.0",
     "@streamdown/cjk": "^1.0.3",

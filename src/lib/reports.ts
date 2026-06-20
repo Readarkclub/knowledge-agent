@@ -77,6 +77,56 @@ export function isLatestWeeklyReportIdentityQuery(query: string): boolean {
   return /(哪|哪个|哪期|日期|时间|什么时候|一期|是)/.test(normalized);
 }
 
+function parseChineseNumber(value: string): number | null {
+  const digits: Record<string, number> = {
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+
+  if (!value.includes("十")) {
+    return digits[value] || null;
+  }
+
+  const [tens, ones] = value.split("十");
+  return (tens ? digits[tens] : 1) * 10 + (ones ? digits[ones] : 0);
+}
+
+export function parseRecentWeeklyReportLimit(
+  query: string
+): number | null {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+  const match = normalized.match(
+    /(?:最近|最新)(?:的)?(\d{1,2}|[一二三四五六七八九十]{1,3})(?:篇|份|期|条|个)(?:周报|报告)/
+  );
+  if (!match) {
+    return null;
+  }
+
+  const limit = /^\d+$/.test(match[1])
+    ? Number(match[1])
+    : parseChineseNumber(match[1]);
+  return limit && limit >= 2 && limit <= 50 ? limit : null;
+}
+
+export function isRecentWeeklyReportListQuery(query: string): boolean {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+
+  if (!parseRecentWeeklyReportLimit(query)) {
+    return false;
+  }
+
+  return !/(内容|讲了什么|说了什么|总结|摘要|主题|资源|链接|讨论)/.test(
+    normalized
+  );
+}
+
 export type MonthFilter = {
   year: number;
   month: number;
@@ -89,6 +139,17 @@ export function parseMonthFilter(query: string): MonthFilter | null {
   if (full) {
     const year = Number(full[1]);
     const month = Number(full[2]);
+    if (month >= 1 && month <= 12) {
+      return { year, month };
+    }
+  }
+
+  const numeric = normalized.match(
+    /(?:^|[^\d])(\d{4})[-/.](\d{1,2})(?![-/.]\d{1,2})/
+  );
+  if (numeric) {
+    const year = Number(numeric[1]);
+    const month = Number(numeric[2]);
     if (month >= 1 && month <= 12) {
       return { year, month };
     }
@@ -120,6 +181,27 @@ export function isWeeklyReportCountQuery(query: string): boolean {
   return /(几份|多少份|有多少|有几份|几期|几条|数量|多少篇|有几篇|多少个|有几个)/.test(normalized);
 }
 
+export function isWeeklyReportListQuery(query: string): boolean {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+
+  if (!parseMonthFilter(query) || !/(周报|报告)/.test(normalized)) {
+    return false;
+  }
+
+  if (
+    isWeeklyReportCountQuery(query) ||
+    /(内容|讲了什么|说了什么|总结|摘要|主题|资源|链接|讨论)/.test(
+      normalized
+    )
+  ) {
+    return false;
+  }
+
+  return /(列出|列表|有哪些|哪几|所有|全部|汇总|整理|查看|给我)/.test(
+    normalized
+  );
+}
+
 export function countWeeklyReports(
   index: KnowledgeIndex,
   filter: MonthFilter
@@ -143,6 +225,70 @@ export function countWeeklyReports(
     .sort((left, right) => left.range.startTime - right.range.startTime);
 }
 
+export function weeklyReportListSources(
+  index: KnowledgeIndex,
+  filter: MonthFilter
+): SearchResult[] {
+  return countWeeklyReports(index, filter).map(
+    ({ document, range }, position) => ({
+      id: `${document.id}:report-range`,
+      documentId: document.id,
+      title: document.title,
+      parentTitle: document.parentTitle,
+      heading: "周报日期",
+      url: document.url,
+      excerpt: `已收录周报，统计周期为${formatChineseDate(
+        range.start
+      )}至${formatChineseDate(range.end)}。`,
+      score: Math.max(0.7, 0.99 - position * 0.04),
+      lexicalScore: 1,
+      semanticScore: 0,
+    })
+  );
+}
+
+export function findRecentWeeklyReports(
+  index: KnowledgeIndex,
+  limit: number,
+  now = Date.now()
+): LatestWeeklyReport[] {
+  return index.documents
+    .map((document) => ({
+      document,
+      range: parseWeeklyReportRange(document.title),
+    }))
+    .filter((item): item is LatestWeeklyReport => Boolean(item.range))
+    .filter((item) => item.range.startTime <= now)
+    .sort(
+      (left, right) =>
+        right.range.endTime - left.range.endTime ||
+        right.range.startTime - left.range.startTime
+    )
+    .slice(0, limit);
+}
+
+export function recentWeeklyReportListSources(
+  index: KnowledgeIndex,
+  limit: number
+): SearchResult[] {
+  return findRecentWeeklyReports(index, limit).map(
+    ({ document, range }, position) => ({
+      id: `${document.id}:recent-report-range`,
+      documentId: document.id,
+      title: document.title,
+      parentTitle: document.parentTitle,
+      heading: "周报日期",
+      url: document.url,
+      excerpt: `已收录周报，统计周期为${formatChineseDate(
+        range.start
+      )}至${formatChineseDate(range.end)}。`,
+      score: Math.max(0.7, 0.99 - position * 0.025),
+      lexicalScore: 1,
+      semanticScore: 0,
+    })
+  );
+}
+
 export function buildWeeklyReportCountAnswer(
   reports: LatestWeeklyReport[],
   filter: MonthFilter,
@@ -160,6 +306,48 @@ export function buildWeeklyReportCountAnswer(
   });
 
   return `截至${todayStr}，知识库中${filter.year}年${filter.month}月的周报共有 **${reports.length}** 份：
+
+${lines.join("\n")}`;
+}
+
+export function buildWeeklyReportListAnswer(
+  reports: LatestWeeklyReport[],
+  filter: MonthFilter
+): string {
+  if (reports.length === 0) {
+    return `知识库中${filter.year}年${filter.month}月还没有已收录的周报。`;
+  }
+
+  const lines = reports.map(({ document, range }, index) => {
+    return `${index + 1}. [${document.title}](${document.url})（${formatChineseDate(
+      range.start
+    )}至${formatChineseDate(range.end)}）`;
+  });
+
+  return `知识库中${filter.year}年${filter.month}月的周报共 **${reports.length}** 份：
+
+${lines.join("\n")}`;
+}
+
+export function buildRecentWeeklyReportListAnswer(
+  reports: LatestWeeklyReport[],
+  requestedLimit: number
+): string {
+  if (reports.length === 0) {
+    return "当前知识库还没有已收录的周报。";
+  }
+
+  const lines = reports.map(({ document, range }, index) => {
+    return `${index + 1}. [${document.title}](${document.url})（${formatChineseDate(
+      range.start
+    )}至${formatChineseDate(range.end)}）`;
+  });
+  const limitNote =
+    reports.length < requestedLimit
+      ? `（请求 ${requestedLimit} 份，当前共找到 ${reports.length} 份）`
+      : "";
+
+  return `知识库中最近的 **${reports.length}** 份周报如下${limitNote}：
 
 ${lines.join("\n")}`;
 }

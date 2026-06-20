@@ -3,6 +3,23 @@ export type WeeklyReportCitation = {
   title: string;
 };
 
+export function parseCitationAllowlist(value?: string): Set<string> {
+  return new Set(
+    (value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
+export function isCitationAllowed(
+  docId: string,
+  wikiTokens: Set<string>,
+  explicitAllowlist: Set<string>
+): boolean {
+  return wikiTokens.has(docId) || explicitAllowlist.has(docId);
+}
+
 function parseAttributes(source: string): Record<string, string> {
   const attributes: Record<string, string> = {};
   const pattern = /([\w-]+)\s*=\s*"([^"]*)"/g;

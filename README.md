@@ -27,11 +27,16 @@ npm run dev
 ## 环境变量
 
 ```ini
-ZHIPU_API_KEY=
-AI_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4
-AI_MODEL=glm-5.2
+API_SECRET_KEY=
+GEMINI_GATEWAY_URL=https://api.readark.club/api
+AI_MODEL=gemini-2.5-flash
 EMBEDDING_PROVIDER=local
 ```
+
+- 知识问答使用 Gemini 原生 `v1beta1` 协议；网关地址末尾的
+  `/v1beta1` 由服务端自动补全。
+- 切换为 `EMBEDDING_PROVIDER=zhipu` 时使用 `embedding-3` 的
+  512 维输出；修改向量提供方后需重新执行 `npm run sync`。
 
 ## 同步与部署
 
