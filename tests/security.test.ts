@@ -117,7 +117,7 @@ test("validates request content type, roles and query size", async () => {
   );
 });
 
-test("accepts the AI SDK chat transport request envelope", () => {
+test("accepts the installed AI SDK chat transport request envelope", () => {
   assert.equal(
     chatRequestSchema.safeParse({
       id: "chat-1",
@@ -128,8 +128,7 @@ test("accepts the AI SDK chat transport request envelope", () => {
           parts: [{ type: "text", text: "最近一周讨论了哪些 AI Agent 话题？" }],
         },
       ],
-      trigger: "submit-user-message",
-      messageId: "message-1",
+      trigger: "submit-message",
     }).success,
     true
   );

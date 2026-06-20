@@ -24,8 +24,9 @@ export default async function LoginPage({
     params.error === "config" || !isAuthConfigured();
 
   return (
-    <main className="fine-grid grid min-h-svh place-items-center px-5 py-10">
-      <section className="w-full max-w-md rounded-3xl border border-white/[0.09] bg-[color:var(--composer)] p-7 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-9">
+    <main className="relative grid h-svh place-items-center overflow-y-auto px-5 py-6 sm:py-10">
+      <div className="fine-grid pointer-events-none absolute inset-0" />
+      <section className="relative z-[1] my-auto w-full max-w-md rounded-3xl border border-white/[0.09] bg-[color:var(--composer)] p-7 shadow-[0_30px_100px_rgba(0,0,0,0.32)] sm:p-9">
         <div className="flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-2xl border border-amber-200/20 bg-amber-200/[0.09] text-amber-200">
             <LockKeyholeIcon />

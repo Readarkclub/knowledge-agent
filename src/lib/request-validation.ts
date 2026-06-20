@@ -19,9 +19,7 @@ export const chatRequestSchema = z
   .object({
     id: z.string().min(1).max(160).optional(),
     messages: z.array(messageSchema).min(1).max(24),
-    trigger: z
-      .enum(["submit-user-message", "regenerate-assistant-message"])
-      .optional(),
+    trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
     messageId: z.string().min(1).max(160).optional(),
   })
   .strict()
