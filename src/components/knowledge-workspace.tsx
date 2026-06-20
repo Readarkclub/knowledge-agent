@@ -327,7 +327,7 @@ export function KnowledgeWorkspace({
           </div>
         </header>
 
-        <Conversation className="relative z-[1]">
+        <Conversation className="relative">
           <ConversationContent
             className="mx-auto min-h-full w-full max-w-3xl gap-7 px-5 pb-36 pt-8 sm:px-8 sm:pt-12"
             scrollClassName="conversation-scroll"
@@ -421,7 +421,15 @@ export function KnowledgeWorkspace({
               </div>
             )}
           </ConversationContent>
-          <ConversationScrollButton className="bottom-28 border-white/10 bg-stone-900/90 text-white/60" />
+          <ConversationScrollButton
+            className="bottom-28 !size-11 transition-transform hover:scale-105 active:scale-95"
+            style={{
+              background: "var(--scroll-button-bg)",
+              borderColor: "var(--scroll-button-border)",
+              boxShadow: "var(--scroll-button-shadow)",
+              color: "var(--scroll-button-fg)",
+            }}
+          />
         </Conversation>
 
         <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent px-4 pb-4 pt-12 sm:px-7 sm:pb-6">
