@@ -63,6 +63,19 @@ function messageText(message: UIMessage): string {
     .join("");
 }
 
+function displayErrorMessage(value?: string): string {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(value) as { error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : value;
+  } catch {
+    return value;
+  }
+}
+
 type KnowledgeWorkspaceProps = {
   canSync: boolean;
   initialSync: SyncState;
@@ -402,9 +415,9 @@ export function KnowledgeWorkspace({
             )}
 
             {(error || localError) && (
-              <div className="flex items-start gap-3 rounded-xl border border-red-300/15 bg-red-300/[0.055] px-4 py-3 text-xs leading-5 text-red-100/75">
+              <div className="chat-error flex items-start gap-3 rounded-xl border border-red-300/15 bg-red-300/[0.055] px-4 py-3 text-xs leading-5 text-red-100/75">
                 <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                {localError || error?.message}
+                {displayErrorMessage(localError || error?.message)}
               </div>
             )}
           </ConversationContent>

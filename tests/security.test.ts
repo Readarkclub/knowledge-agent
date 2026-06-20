@@ -127,6 +127,19 @@ test("accepts the installed AI SDK chat transport request envelope", () => {
           role: "user",
           parts: [{ type: "text", text: "最近一周讨论了哪些 AI Agent 话题？" }],
         },
+        {
+          id: "message-2",
+          role: "assistant",
+          parts: [
+            { type: "step-start" },
+            { type: "text", text: "根据知识库证据，近期讨论包括 Codex Agent。" },
+          ],
+        },
+        {
+          id: "message-3",
+          role: "user",
+          parts: [{ type: "text", text: "列出5月份的周报" }],
+        },
       ],
       trigger: "submit-message",
     }).success,

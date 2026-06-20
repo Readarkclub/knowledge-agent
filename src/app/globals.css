@@ -185,6 +185,12 @@
   opacity: 1;
 }
 
+[data-theme="light"] .chat-error {
+  border-color: oklch(0.63 0.16 25 / 32%);
+  background: oklch(0.96 0.025 25);
+  color: oklch(0.42 0.15 25);
+}
+
 * {
   border-color: var(--border);
 }

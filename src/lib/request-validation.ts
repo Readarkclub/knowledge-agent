@@ -7,13 +7,36 @@ const textPartSchema = z
   })
   .passthrough();
 
+const stepStartPartSchema = z
+  .object({
+    type: z.literal("step-start"),
+  })
+  .strict();
+
+const messagePartSchema = z.discriminatedUnion("type", [
+  textPartSchema,
+  stepStartPartSchema,
+]);
+
 const messageSchema = z
   .object({
     id: z.string().min(1).max(160).optional(),
     role: z.enum(["user", "assistant"]),
-    parts: z.array(textPartSchema).min(1).max(20),
+    parts: z.array(messagePartSchema).min(1).max(20),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((message, context) => {
+    if (
+      message.role === "user" &&
+      message.parts.some((part) => part.type !== "text")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "用户消息只能包含文本",
+        path: ["parts"],
+      });
+    }
+  });
 
 export const chatRequestSchema = z
   .object({
@@ -27,7 +50,11 @@ export const chatRequestSchema = z
     const totalLength = messages.reduce(
       (sum, message) =>
         sum +
-        message.parts.reduce((partSum, part) => partSum + part.text.length, 0),
+        message.parts.reduce(
+          (partSum, part) =>
+            partSum + (part.type === "text" ? part.text.length : 0),
+          0
+        ),
       0
     );
     if (totalLength > 32_000) {
