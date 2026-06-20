@@ -2,16 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chunkDocument } from "../src/lib/chunking";
 import {
+  buildAllWeeklyReportCountAnswer,
   buildLatestWeeklyReportAnswer,
   buildRecentWeeklyReportListAnswer,
   buildWeeklyReportCountAnswer,
   buildWeeklyReportListAnswer,
   countWeeklyReports,
+  findAllWeeklyReports,
   findLatestWeeklyReport,
   findRecentWeeklyReports,
   isLatestWeeklyReportIdentityQuery,
   isLatestWeeklyReportQuery,
   isRecentWeeklyReportListQuery,
+  isRecentPeriodContentQuery,
+  isTotalWeeklyReportCountQuery,
   isWeeklyReportCountQuery,
   isWeeklyReportListQuery,
   latestWeeklyReportSources,
@@ -19,6 +23,7 @@ import {
   parseRecentWeeklyReportLimit,
   parseWeeklyReportRange,
   recentWeeklyReportListSources,
+  routeWeeklyReportQuery,
   weeklyReportListSources,
 } from "../src/lib/reports";
 import { emptyIndex } from "../src/lib/store";
@@ -123,6 +128,17 @@ test("routes latest weekly report questions to the latest document", () => {
   );
 });
 
+test("routes recent-period content questions to the latest report", () => {
+  assert.equal(
+    isRecentPeriodContentQuery("最近一周群里讨论了哪些 AI Agent 话题？"),
+    true
+  );
+  assert.deepEqual(
+    routeWeeklyReportQuery("最近一周群里讨论了哪些 AI Agent 话题？"),
+    { type: "latest", identity: false }
+  );
+});
+
 test("detects recent N weekly-report list queries", () => {
   assert.equal(parseRecentWeeklyReportLimit("列出最近的10篇周报"), 10);
   assert.equal(parseRecentWeeklyReportLimit("查看最新十期报告"), 10);
@@ -174,6 +190,16 @@ test("detects monthly weekly-report count queries", () => {
   assert.equal(isWeeklyReportCountQuery("6月周报讲了什么内容"), false);
 });
 
+test("routes total weekly-report count queries to document metadata", () => {
+  assert.equal(isTotalWeeklyReportCountQuery("一共有多少篇周报？"), true);
+  assert.equal(isTotalWeeklyReportCountQuery("知识库总共收录了几期报告"), true);
+  assert.equal(isTotalWeeklyReportCountQuery("6月份周报有几份"), false);
+  assert.equal(isTotalWeeklyReportCountQuery("有多少篇周报提到 RAG"), false);
+  assert.deepEqual(routeWeeklyReportQuery("一共有多少篇周报？"), {
+    type: "total-count",
+  });
+});
+
 test("parses month filter with default current year", () => {
   assert.deepEqual(parseMonthFilter("6月份周报"), { year: new Date().getFullYear(), month: 6 });
   assert.deepEqual(parseMonthFilter("2025年4月周报"), { year: 2025, month: 4 });
@@ -207,6 +233,29 @@ test("counts weekly reports in a given month", () => {
   const may = countWeeklyReports(index, { year: 2026, month: 5 });
   assert.equal(may.length, 1);
   assert.equal(may[0].document.id, "c");
+});
+
+test("counts all weekly reports and summarizes their coverage", () => {
+  const index = emptyIndex();
+  index.documents = [
+    report("a", "人人智学社报告2025-12-29~2026-01-04"),
+    report("b", "人人智学社报告2026-01-05~2026-01-11"),
+    report("c", "人人智学社报告2026年1月"),
+  ];
+
+  const reports = findAllWeeklyReports(
+    index,
+    Date.UTC(2026, 1, 1)
+  );
+  const answer = buildAllWeeklyReportCountAnswer(
+    reports,
+    new Date(2026, 1, 1)
+  );
+
+  assert.equal(reports.length, 2);
+  assert.match(answer, /共收录 \*\*2\*\* 份周报/);
+  assert.match(answer, /2025年 1 份，2026年 1 份/);
+  assert.match(answer, /2025年12月29日至2026年1月11日/);
 });
 
 test("builds count answer listing each report", () => {

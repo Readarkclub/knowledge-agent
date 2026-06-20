@@ -1,4 +1,5 @@
 import { KnowledgeWorkspace } from "@/components/knowledge-workspace";
+import { canUseQueryEmbeddings } from "@/lib/embeddings";
 import { requireAuthenticatedPage } from "@/lib/page-auth";
 import { readIndex } from "@/lib/store";
 
@@ -12,7 +13,7 @@ export default async function Home() {
     <KnowledgeWorkspace
       canSync={!isVercel}
       initialSync={index.sync}
-      semanticSearchEnabled={!isVercel}
+      semanticSearchEnabled={canUseQueryEmbeddings(index)}
     />
   );
 }

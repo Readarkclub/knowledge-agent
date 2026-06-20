@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export type TraceRoute =
   | "weekly-report-count"
+  | "weekly-report-total-count"
   | "weekly-report-list"
   | "recent-weekly-report-list"
   | "latest-weekly-report"
@@ -17,6 +18,7 @@ export type TraceEntry = {
   topScore: number;
   topTitleHashes: string[];
   durationMs: number;
+  retrievalStrategy?: string;
 };
 
 type TraceInput = {
@@ -24,6 +26,7 @@ type TraceInput = {
   evidenceCount: number;
   topScore: number;
   topTitles: string[];
+  retrievalStrategy?: string;
 };
 
 let enabled: boolean | null = null;
@@ -58,6 +61,7 @@ export function createTrace(query: string): {
         topScore: entry.topScore,
         topTitleHashes: entry.topTitles.map((title) => shortHash(title, 12)),
         durationMs: Date.now() - start,
+        retrievalStrategy: entry.retrievalStrategy,
       };
       process.stderr.write(`[knowledge-trace] ${JSON.stringify(record)}\n`);
     },

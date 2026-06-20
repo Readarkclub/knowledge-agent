@@ -18,23 +18,19 @@ import {
   parseJsonRequest,
 } from "@/lib/request-validation";
 import {
+  buildAllWeeklyReportCountAnswer,
   buildLatestWeeklyReportAnswer,
   buildRecentWeeklyReportListAnswer,
   buildWeeklyReportCountAnswer,
   buildWeeklyReportListAnswer,
   countWeeklyReports,
+  findAllWeeklyReports,
   findLatestWeeklyReport,
   findRecentWeeklyReports,
-  isLatestWeeklyReportIdentityQuery,
-  isLatestWeeklyReportQuery,
-  isRecentWeeklyReportListQuery,
-  isWeeklyReportCountQuery,
-  isWeeklyReportListQuery,
   latestWeeklyReportSources,
-  parseMonthFilter,
-  parseRecentWeeklyReportLimit,
+  routeWeeklyReportQuery,
 } from "@/lib/reports";
-import { searchKnowledge } from "@/lib/search";
+import { searchKnowledgeDetailed } from "@/lib/search";
 import {
   internalErrorResponse,
   reportServerError,
@@ -110,17 +106,13 @@ export async function POST(request: Request) {
 
     trace = createTrace(query);
     const index = await readIndex();
-    const monthFilter = parseMonthFilter(query);
-    const recentReportLimit = parseRecentWeeklyReportLimit(query);
+    const reportRoute = routeWeeklyReportQuery(query);
 
-    if (
-      recentReportLimit &&
-      isRecentWeeklyReportListQuery(query)
-    ) {
-      const reports = findRecentWeeklyReports(index, recentReportLimit);
+    if (reportRoute?.type === "recent-list") {
+      const reports = findRecentWeeklyReports(index, reportRoute.limit);
       const answer = buildRecentWeeklyReportListAnswer(
         reports,
-        recentReportLimit
+        reportRoute.limit
       );
       trace.finish({
         route: "recent-weekly-report-list",
@@ -131,9 +123,12 @@ export async function POST(request: Request) {
       return streamTextAnswer(answer, "recent-weekly-report-list", headers);
     }
 
-    if (monthFilter && isWeeklyReportCountQuery(query)) {
-      const reports = countWeeklyReports(index, monthFilter);
-      const answer = buildWeeklyReportCountAnswer(reports, monthFilter);
+    if (reportRoute?.type === "monthly-count") {
+      const reports = countWeeklyReports(index, reportRoute.filter);
+      const answer = buildWeeklyReportCountAnswer(
+        reports,
+        reportRoute.filter
+      );
       trace.finish({
         route: "weekly-report-count",
         evidenceCount: reports.length,
@@ -143,9 +138,12 @@ export async function POST(request: Request) {
       return streamTextAnswer(answer, "weekly-report-count", headers);
     }
 
-    if (monthFilter && isWeeklyReportListQuery(query)) {
-      const reports = countWeeklyReports(index, monthFilter);
-      const answer = buildWeeklyReportListAnswer(reports, monthFilter);
+    if (reportRoute?.type === "monthly-list") {
+      const reports = countWeeklyReports(index, reportRoute.filter);
+      const answer = buildWeeklyReportListAnswer(
+        reports,
+        reportRoute.filter
+      );
       trace.finish({
         route: "weekly-report-list",
         evidenceCount: reports.length,
@@ -155,18 +153,27 @@ export async function POST(request: Request) {
       return streamTextAnswer(answer, "weekly-report-list", headers);
     }
 
-    const latestReportQuery = isLatestWeeklyReportQuery(query);
-    const latestReport = latestReportQuery
+    if (reportRoute?.type === "total-count") {
+      const reports = findAllWeeklyReports(index);
+      const answer = buildAllWeeklyReportCountAnswer(reports);
+      trace.finish({
+        route: "weekly-report-total-count",
+        evidenceCount: reports.length,
+        topScore: reports.length ? 1 : 0,
+        topTitles: reports.map((r) => r.document.title).slice(-3),
+      });
+      return streamTextAnswer(answer, "weekly-report-total-count", headers);
+    }
+
+    const latestReport = reportRoute?.type === "latest"
       ? findLatestWeeklyReport(index)
       : null;
-    const sources = latestReportQuery
-      ? latestWeeklyReportSources(index, query, RETRIEVAL.contextResults)
-      : await searchKnowledge(index, query, RETRIEVAL.contextResults);
 
-    const topScore = sources[0]?.score ?? 0;
-    const topTitles = sources.slice(0, 3).map((s) => s.title);
-
-    if (latestReport && isLatestWeeklyReportIdentityQuery(query)) {
+    if (
+      latestReport &&
+      reportRoute?.type === "latest" &&
+      reportRoute.identity
+    ) {
       const answer = buildLatestWeeklyReportAnswer(latestReport);
       trace.finish({
         route: "latest-weekly-report",
@@ -177,6 +184,31 @@ export async function POST(request: Request) {
       return streamTextAnswer(answer, "latest-weekly-report", headers);
     }
 
+    const filteredIndex = latestReport
+      ? {
+          ...index,
+          documents: [latestReport.document],
+          chunks: index.chunks.filter(
+            (chunk) => chunk.documentId === latestReport.document.id
+          ),
+        }
+      : index;
+    const searchOutcome = await searchKnowledgeDetailed(
+      filteredIndex,
+      query,
+      RETRIEVAL.contextResults
+    );
+    const sources =
+      searchOutcome.results.length || !latestReport
+        ? searchOutcome.results
+        : latestWeeklyReportSources(
+            index,
+            query,
+            RETRIEVAL.contextResults
+          );
+    const topScore = sources[0]?.score ?? 0;
+    const topTitles = sources.slice(0, 3).map((s) => s.title);
+
     // 低证据关卡：检索为空时直接返回"未找到"，不进 LLM。
     if (sources.length === 0 || topScore <= EVIDENCE_EMPTY_THRESHOLD) {
       const answer =
@@ -186,6 +218,7 @@ export async function POST(request: Request) {
         evidenceCount: 0,
         topScore,
         topTitles,
+        retrievalStrategy: searchOutcome?.strategy,
       });
       return streamTextAnswer(answer, "evidence-empty", headers);
     }
@@ -195,6 +228,10 @@ export async function POST(request: Request) {
       evidenceCount: sources.length,
       topScore,
       topTitles,
+      retrievalStrategy:
+        reportRoute?.type === "latest"
+          ? "latest-report"
+          : searchOutcome?.strategy,
     });
 
     const result = streamText({

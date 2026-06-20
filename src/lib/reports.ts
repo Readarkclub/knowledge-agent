@@ -17,6 +17,13 @@ export type LatestWeeklyReport = {
   range: WeeklyReportRange;
 };
 
+export type WeeklyReportQueryRoute =
+  | { type: "recent-list"; limit: number }
+  | { type: "monthly-count"; filter: MonthFilter }
+  | { type: "monthly-list"; filter: MonthFilter }
+  | { type: "total-count" }
+  | { type: "latest"; identity: boolean };
+
 function parseDate(value: string): number | null {
   const [year, month, day] = value.split("-").map(Number);
   const time = Date.UTC(year, month - 1, day);
@@ -62,6 +69,13 @@ export function parseWeeklyReportRange(
 export function isLatestWeeklyReportQuery(query: string): boolean {
   const normalized = query.normalize("NFKC").replace(/\s+/g, "");
   return /(最新|最近)/.test(normalized) && /(周报|报告)/.test(normalized);
+}
+
+export function isRecentPeriodContentQuery(query: string): boolean {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+  return /(最近一周|近一周|过去一周|最近7天|近7天|本周|上周)/.test(
+    normalized
+  );
 }
 
 export function isLatestWeeklyReportIdentityQuery(query: string): boolean {
@@ -181,6 +195,24 @@ export function isWeeklyReportCountQuery(query: string): boolean {
   return /(几份|多少份|有多少|有几份|几期|几条|数量|多少篇|有几篇|多少个|有几个)/.test(normalized);
 }
 
+export function isTotalWeeklyReportCountQuery(query: string): boolean {
+  const normalized = query.normalize("NFKC").replace(/\s+/g, "");
+
+  if (
+    parseMonthFilter(query) ||
+    !/(周报|报告)/.test(normalized) ||
+    /(内容|讲了什么|说了什么|总结|摘要|主题|资源|链接|讨论|提到|涉及|关于)/.test(
+      normalized
+    )
+  ) {
+    return false;
+  }
+
+  return /(一共|总共|总计|累计|全部)?(有)?(几份|多少份|有多少|有几份|几期|几条|数量|多少篇|有几篇|多少个|有几个)/.test(
+    normalized
+  );
+}
+
 export function isWeeklyReportListQuery(query: string): boolean {
   const normalized = query.normalize("NFKC").replace(/\s+/g, "");
 
@@ -225,6 +257,24 @@ export function countWeeklyReports(
     .sort((left, right) => left.range.startTime - right.range.startTime);
 }
 
+export function findAllWeeklyReports(
+  index: KnowledgeIndex,
+  now = Date.now()
+): LatestWeeklyReport[] {
+  return index.documents
+    .map((document) => ({
+      document,
+      range: parseWeeklyReportRange(document.title),
+    }))
+    .filter((item): item is LatestWeeklyReport => Boolean(item.range))
+    .filter((item) => item.range.startTime <= now)
+    .sort(
+      (left, right) =>
+        left.range.startTime - right.range.startTime ||
+        left.range.endTime - right.range.endTime
+    );
+}
+
 export function weeklyReportListSources(
   index: KnowledgeIndex,
   filter: MonthFilter
@@ -252,19 +302,39 @@ export function findRecentWeeklyReports(
   limit: number,
   now = Date.now()
 ): LatestWeeklyReport[] {
-  return index.documents
-    .map((document) => ({
-      document,
-      range: parseWeeklyReportRange(document.title),
-    }))
-    .filter((item): item is LatestWeeklyReport => Boolean(item.range))
-    .filter((item) => item.range.startTime <= now)
+  return findAllWeeklyReports(index, now)
     .sort(
       (left, right) =>
         right.range.endTime - left.range.endTime ||
         right.range.startTime - left.range.startTime
     )
     .slice(0, limit);
+}
+
+export function buildAllWeeklyReportCountAnswer(
+  reports: LatestWeeklyReport[],
+  today = new Date()
+): string {
+  const todayStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+  if (!reports.length) {
+    return `截至${todayStr}，知识库中还没有已收录的周报。`;
+  }
+
+  const countsByYear = new Map<number, number>();
+  for (const report of reports) {
+    const year = new Date(report.range.startTime).getUTCFullYear();
+    countsByYear.set(year, (countsByYear.get(year) || 0) + 1);
+  }
+  const yearSummary = [...countsByYear.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([year, count]) => `${year}年 ${count} 份`)
+    .join("，");
+  const earliest = reports[0];
+  const latest = reports[reports.length - 1];
+
+  return `截至${todayStr}，知识库共收录 **${reports.length}** 份周报，覆盖 **${formatChineseDate(
+    earliest.range.start
+  )}至${formatChineseDate(latest.range.end)}**。按年份统计：${yearSummary}。`;
 }
 
 export function recentWeeklyReportListSources(
@@ -371,6 +441,37 @@ export function findLatestWeeklyReport(
     );
 
   return reports[0] || null;
+}
+
+export function routeWeeklyReportQuery(
+  query: string
+): WeeklyReportQueryRoute | null {
+  const recentLimit = parseRecentWeeklyReportLimit(query);
+  if (recentLimit && isRecentWeeklyReportListQuery(query)) {
+    return { type: "recent-list", limit: recentLimit };
+  }
+
+  const monthFilter = parseMonthFilter(query);
+  if (monthFilter && isWeeklyReportCountQuery(query)) {
+    return { type: "monthly-count", filter: monthFilter };
+  }
+  if (monthFilter && isWeeklyReportListQuery(query)) {
+    return { type: "monthly-list", filter: monthFilter };
+  }
+  if (isTotalWeeklyReportCountQuery(query)) {
+    return { type: "total-count" };
+  }
+  if (isLatestWeeklyReportQuery(query)) {
+    return {
+      type: "latest",
+      identity: isLatestWeeklyReportIdentityQuery(query),
+    };
+  }
+  if (isRecentPeriodContentQuery(query)) {
+    return { type: "latest", identity: false };
+  }
+
+  return null;
 }
 
 function fallbackResult(

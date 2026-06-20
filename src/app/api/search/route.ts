@@ -3,14 +3,9 @@ import {
   rateLimitHeaders,
 } from "@/lib/api-security";
 import {
-  isLatestWeeklyReportQuery,
-  isRecentWeeklyReportListQuery,
-  isWeeklyReportCountQuery,
-  isWeeklyReportListQuery,
   latestWeeklyReportSources,
-  parseMonthFilter,
-  parseRecentWeeklyReportLimit,
   recentWeeklyReportListSources,
+  routeWeeklyReportQuery,
   weeklyReportListSources,
 } from "@/lib/reports";
 import {
@@ -44,16 +39,16 @@ export async function POST(request: Request) {
     const { query } = parsed.data;
 
     const index = await readIndex();
-    const monthFilter = parseMonthFilter(query);
-    const recentReportLimit = parseRecentWeeklyReportLimit(query);
-    const isMonthlyReportQuery =
-      isWeeklyReportCountQuery(query) || isWeeklyReportListQuery(query);
+    const reportRoute = routeWeeklyReportQuery(query);
     const results =
-      recentReportLimit && isRecentWeeklyReportListQuery(query)
-        ? recentWeeklyReportListSources(index, recentReportLimit)
-        : monthFilter && isMonthlyReportQuery
-          ? weeklyReportListSources(index, monthFilter)
-          : isLatestWeeklyReportQuery(query)
+      reportRoute?.type === "recent-list"
+        ? recentWeeklyReportListSources(index, reportRoute.limit)
+        : reportRoute?.type === "monthly-count" ||
+            reportRoute?.type === "monthly-list"
+          ? weeklyReportListSources(index, reportRoute.filter)
+          : reportRoute?.type === "total-count"
+            ? recentWeeklyReportListSources(index, 12)
+            : reportRoute?.type === "latest"
             ? latestWeeklyReportSources(index, query)
             : await searchKnowledge(index, query);
 
