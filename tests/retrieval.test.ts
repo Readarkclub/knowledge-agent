@@ -247,6 +247,90 @@ test("正文检索为空时可以通过标题元数据召回文档", () => {
   assert.deepEqual(results.map((result) => result.id), ["a"]);
 });
 
+test("同一索引重复检索结果一致且命中派生缓存", () => {
+  const index = emptyIndex();
+  index.chunks = [
+    {
+      id: "a",
+      documentId: "doc-a",
+      nodeToken: "a",
+      title: "Agent 讨论",
+      parentTitle: "六月",
+      heading: "RAG",
+      url: "https://example.com/a",
+      content: "群里讨论了 Hybrid RAG、引用和飞书文档同步。",
+      contextualText: "群里讨论了 Hybrid RAG、引用和飞书文档同步。",
+      tokens: tokenize("群里讨论了 Hybrid RAG、引用和飞书文档同步。"),
+      embedding: [0.6, 0.8],
+    },
+  ];
+
+  const first = searchIndex(index, "飞书文档怎么同步", [0.6, 0.8], 2);
+  const second = searchIndex(index, "飞书文档怎么同步", [0.6, 0.8], 2);
+  assert.deepEqual(first, second);
+  assert.equal(first[0]?.id, "a");
+});
+
+test("替换 chunks 数组后检索反映新内容", () => {
+  const index = emptyIndex();
+  const chunkTemplate = {
+    documentId: "doc-a",
+    nodeToken: "a",
+    parentTitle: "六月",
+    heading: "正文",
+    url: "https://example.com/a",
+  };
+  index.chunks = [
+    {
+      ...chunkTemplate,
+      id: "old",
+      title: "旧文档",
+      content: "讨论了知识库检索。",
+      contextualText: "讨论了知识库检索。",
+      tokens: tokenize("讨论了知识库检索。"),
+    },
+  ];
+  assert.equal(
+    searchIndex(index, "知识库检索", undefined, 2)[0]?.id,
+    "old"
+  );
+
+  index.chunks = [
+    {
+      ...chunkTemplate,
+      id: "new",
+      title: "新文档",
+      content: "讨论了知识库检索。",
+      contextualText: "讨论了知识库检索。",
+      tokens: tokenize("讨论了知识库检索。"),
+    },
+  ];
+  assert.equal(
+    searchIndex(index, "知识库检索", undefined, 2)[0]?.id,
+    "new"
+  );
+});
+
+test("超长章节在句号边界切块而不是硬切", () => {
+  const sentence = `${"句".repeat(89)}。`;
+  const chunks = chunkDocument({
+    documentId: "doc-1",
+    nodeToken: "node-1",
+    title: "长文",
+    parentTitle: "专题",
+    url: "https://example.com/wiki/node-1",
+    markdown: sentence.repeat(8),
+  });
+
+  assert(chunks.length > 1);
+  for (const chunk of chunks) {
+    assert(
+      chunk.content.endsWith("。"),
+      `分块应结束于句号：…${chunk.content.slice(-12)}`
+    );
+  }
+});
+
 test("Vercel 仅在远程模型与索引模型一致时启用查询向量", () => {
   const originalProvider = process.env.EMBEDDING_PROVIDER;
   const originalKey = process.env.ZHIPU_API_KEY;
