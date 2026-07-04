@@ -177,6 +177,60 @@ function localText(text: string, purpose: EmbeddingPurpose): string {
   return purpose === "query" ? `query: ${text}` : `passage: ${text}`;
 }
 
+/**
+ * 查询向量按「提供方|模型|原文」做 LRU 缓存：
+ * 重复提问不再花一次远程 Embedding 往返（约几百毫秒）与配额。
+ * 文档向量走批量路径，不进该缓存；失败结果不缓存。
+ */
+const QUERY_EMBEDDING_CACHE_LIMIT = 128;
+const queryEmbeddingCache = new Map<string, number[]>();
+
+function queryEmbeddingCacheKey(text: string): string {
+  return `${selectedProvider()}|${getEmbeddingProviderName() || ""}|${text}`;
+}
+
+async function embedQueriesWithCache(
+  texts: string[]
+): Promise<number[][]> {
+  const keys = texts.map(queryEmbeddingCacheKey);
+  const results = new Array<number[]>(texts.length);
+  const missIndexes: number[] = [];
+
+  keys.forEach((key, position) => {
+    const hit = queryEmbeddingCache.get(key);
+    if (hit) {
+      queryEmbeddingCache.delete(key);
+      queryEmbeddingCache.set(key, hit);
+      results[position] = hit;
+    } else {
+      missIndexes.push(position);
+    }
+  });
+
+  if (missIndexes.length) {
+    const vectors = await embedWithProvider(
+      missIndexes.map((position) => texts[position]),
+      "query"
+    );
+    missIndexes.forEach((textPosition, vectorPosition) => {
+      const vector = vectors[vectorPosition];
+      results[textPosition] = vector;
+      if (!vector?.length) {
+        return;
+      }
+      queryEmbeddingCache.set(keys[textPosition], vector);
+      if (queryEmbeddingCache.size > QUERY_EMBEDDING_CACHE_LIMIT) {
+        const oldestKey = queryEmbeddingCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          queryEmbeddingCache.delete(oldestKey);
+        }
+      }
+    });
+  }
+
+  return results;
+}
+
 async function getLocalExtractor(): Promise<LocalExtractor> {
   if (!localExtractorPromise) {
     localExtractorPromise = (async () => {
@@ -193,19 +247,7 @@ async function getLocalExtractor(): Promise<LocalExtractor> {
   return localExtractorPromise;
 }
 
-async function embedLocally(texts: string[]): Promise<number[][]> {
-  const extractor = await getLocalExtractor();
-  const output = await extractor(
-    texts.map((text) => localText(text, "document")),
-    {
-      pooling: "mean",
-      normalize: true,
-    }
-  );
-  return output.tolist();
-}
-
-async function embedLocallyForPurpose(
+async function embedLocally(
   texts: string[],
   purpose: EmbeddingPurpose
 ): Promise<number[][]> {
@@ -327,6 +369,20 @@ async function embedWithZhipu(texts: string[]): Promise<number[][]> {
     .map((item) => item.embedding);
 }
 
+async function embedWithProvider(
+  texts: string[],
+  purpose: EmbeddingPurpose
+): Promise<number[][]> {
+  const provider = selectedProvider();
+  if (provider === "local") {
+    return embedLocally(texts, purpose);
+  }
+  if (provider === "gemini") {
+    return embedWithGemini(texts, purpose);
+  }
+  return embedWithZhipu(texts);
+}
+
 export async function embedTexts(
   texts: string[],
   purpose: EmbeddingPurpose
@@ -335,24 +391,28 @@ export async function embedTexts(
     return [];
   }
 
-  const provider = selectedProvider();
-  if (provider === "local") {
-    return purpose === "document"
-      ? embedLocally(texts)
-      : embedLocallyForPurpose(texts, purpose);
+  if (purpose === "query") {
+    return embedQueriesWithCache(texts);
   }
-  if (provider === "gemini") {
-    return embedWithGemini(texts, purpose);
-  }
-  return embedWithZhipu(texts);
+  return embedWithProvider(texts, purpose);
 }
 
-export async function embedInBatches(
+export type BatchEmbeddingOutcome = {
+  /** 已成功生成的前缀向量，与输入顺序一一对应。 */
+  vectors: number[][];
+  failure?: Error;
+};
+
+/**
+ * 逐批生成向量；某一批失败（如配额耗尽）时保留已完成的前缀并返回错误，
+ * 让调用方决定降级方式，而不是丢弃全部进度。
+ */
+export async function embedInBatchesBestEffort(
   texts: string[],
   purpose: EmbeddingPurpose,
   batchSize = 16
-): Promise<number[][]> {
-  const result: number[][] = [];
+): Promise<BatchEmbeddingOutcome> {
+  const vectors: number[][] = [];
   const connection =
     selectedProvider() === "gemini" ? geminiConnection() : null;
   const effectiveBatchSize =
@@ -362,8 +422,24 @@ export async function embedInBatches(
 
   for (let start = 0; start < texts.length; start += effectiveBatchSize) {
     const batch = texts.slice(start, start + effectiveBatchSize);
-    result.push(...(await embedTexts(batch, purpose)));
+    try {
+      vectors.push(...(await embedTexts(batch, purpose)));
+    } catch (error) {
+      return { vectors, failure: error as Error };
+    }
   }
 
-  return result;
+  return { vectors };
+}
+
+export async function embedInBatches(
+  texts: string[],
+  purpose: EmbeddingPurpose,
+  batchSize = 16
+): Promise<number[][]> {
+  const outcome = await embedInBatchesBestEffort(texts, purpose, batchSize);
+  if (outcome.failure) {
+    throw outcome.failure;
+  }
+  return outcome.vectors;
 }

@@ -28,6 +28,84 @@ export type KnowledgeSearchOutcome = {
   effectiveQuery: string;
 };
 
+type ChunkSearchData = {
+  tokenSet: Set<string>;
+  termFrequencies: Map<string, number>;
+  tokenCount: number;
+  loweredText: string;
+  loweredTitle: string;
+  embeddingNorm: number;
+};
+
+type IndexSearchData = {
+  chunkData: ChunkSearchData[];
+  averageTokenCount: number;
+  firstChunkByDocument: Map<string, KnowledgeChunk>;
+};
+
+/**
+ * 检索派生数据（词元集合、词频、小写全文、向量模长）只依赖 chunks 内容，
+ * 却在原实现里每次查询重算，占了检索延迟的大头。按 chunks 数组身份缓存：
+ * store 缓存保证线上索引对象跨请求稳定，索引更新后旧缓存随对象一起释放。
+ */
+const indexSearchDataCache = new WeakMap<
+  KnowledgeChunk[],
+  IndexSearchData
+>();
+
+function vectorNorm(vector: number[]): number {
+  let sum = 0;
+  for (let index = 0; index < vector.length; index += 1) {
+    sum += vector[index] ** 2;
+  }
+  return Math.sqrt(sum);
+}
+
+function buildChunkSearchData(chunk: KnowledgeChunk): ChunkSearchData {
+  const termFrequencies = new Map<string, number>();
+  for (const token of chunk.tokens) {
+    termFrequencies.set(token, (termFrequencies.get(token) || 0) + 1);
+  }
+
+  return {
+    tokenSet: new Set(chunk.tokens),
+    termFrequencies,
+    tokenCount: chunk.tokens.length,
+    loweredText: chunk.contextualText.normalize("NFKC").toLowerCase(),
+    loweredTitle: chunk.title.normalize("NFKC").toLowerCase(),
+    embeddingNorm: chunk.embedding ? vectorNorm(chunk.embedding) : 0,
+  };
+}
+
+function getIndexSearchData(index: KnowledgeIndex): IndexSearchData {
+  const cached = indexSearchDataCache.get(index.chunks);
+  if (cached) {
+    return cached;
+  }
+
+  const chunkData = index.chunks.map(buildChunkSearchData);
+  let totalTokens = 0;
+  for (const data of chunkData) {
+    totalTokens += data.tokenCount;
+  }
+  const firstChunkByDocument = new Map<string, KnowledgeChunk>();
+  for (const chunk of index.chunks) {
+    if (!firstChunkByDocument.has(chunk.documentId)) {
+      firstChunkByDocument.set(chunk.documentId, chunk);
+    }
+  }
+
+  const data: IndexSearchData = {
+    chunkData,
+    averageTokenCount: chunkData.length
+      ? totalTokens / chunkData.length
+      : 0,
+    firstChunkByDocument,
+  };
+  indexSearchDataCache.set(index.chunks, data);
+  return data;
+}
+
 function queryTerms(query: string): string[] {
   const cleaned = query
     .normalize("NFKC")
@@ -39,7 +117,7 @@ function queryTerms(query: string): string[] {
       tokenize(cleaned).filter(
         (term) =>
           /^[a-z0-9]/.test(term) ||
-          (/^[\u3400-\u9fff]+$/.test(term) && term.length >= 2)
+          (/^[㐀-鿿]+$/.test(term) && term.length >= 2)
       )
     ),
   ];
@@ -74,41 +152,44 @@ function longestMatchedRun(
   return longest;
 }
 
-function cosineSimilarity(left: number[], right: number[]): number {
-  if (!left.length || left.length !== right.length) {
+function cosineSimilarity(
+  left: number[],
+  right: number[],
+  leftNorm: number,
+  rightNorm: number
+): number {
+  if (
+    !left.length ||
+    left.length !== right.length ||
+    !leftNorm ||
+    !rightNorm
+  ) {
     return 0;
   }
 
   let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
   for (let index = 0; index < left.length; index += 1) {
     dot += left[index] * right[index];
-    leftNorm += left[index] ** 2;
-    rightNorm += right[index] ** 2;
   }
-
-  if (!leftNorm || !rightNorm) {
-    return 0;
-  }
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+  return dot / (leftNorm * rightNorm);
 }
 
-function bm25Scores(chunks: KnowledgeChunk[], queryTokens: string[]): number[] {
-  if (!queryTokens.length || !chunks.length) {
-    return chunks.map(() => 0);
+function bm25Scores(
+  chunkData: ChunkSearchData[],
+  averageTokenCount: number,
+  queryTokens: string[]
+): number[] {
+  if (!queryTokens.length || !chunkData.length) {
+    return chunkData.map(() => 0);
   }
 
-  const averageLength =
-    chunks.reduce((sum, chunk) => sum + chunk.tokens.length, 0) /
-    chunks.length;
   const documentFrequency = new Map<string, number>();
   const uniqueQueryTokens = [...new Set(queryTokens)];
 
   for (const token of uniqueQueryTokens) {
     let count = 0;
-    for (const chunk of chunks) {
-      if (chunk.tokens.includes(token)) {
+    for (const data of chunkData) {
+      if (data.tokenSet.has(token)) {
         count += 1;
       }
     }
@@ -117,29 +198,24 @@ function bm25Scores(chunks: KnowledgeChunk[], queryTokens: string[]): number[] {
 
   const k1 = 1.5;
   const b = 0.75;
-  return chunks.map((chunk) => {
-    const frequencies = new Map<string, number>();
-    for (const token of chunk.tokens) {
-      frequencies.set(token, (frequencies.get(token) || 0) + 1);
-    }
-
+  return chunkData.map((data) => {
     let score = 0;
     for (const token of queryTokens) {
-      const frequency = frequencies.get(token) || 0;
+      const frequency = data.termFrequencies.get(token) || 0;
       if (!frequency) {
         continue;
       }
 
       const df = documentFrequency.get(token) || 0;
       const idf = Math.log(
-        1 + (chunks.length - df + 0.5) / (df + 0.5)
+        1 + (chunkData.length - df + 0.5) / (df + 0.5)
       );
       const denominator =
         frequency +
         k1 *
           (1 -
             b +
-            b * (chunk.tokens.length / Math.max(averageLength, 1)));
+            b * (data.tokenCount / Math.max(averageTokenCount, 1)));
       score += idf * ((frequency * (k1 + 1)) / denominator);
     }
     return score;
@@ -150,8 +226,16 @@ function normalizeScores(values: number[]): number[] {
   if (!values.length) {
     return [];
   }
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
+  let minimum = values[0];
+  let maximum = values[0];
+  for (const value of values) {
+    if (value < minimum) {
+      minimum = value;
+    }
+    if (value > maximum) {
+      maximum = value;
+    }
+  }
   if (maximum === minimum) {
     return values.map((value) => (value > 0 ? 1 : 0));
   }
@@ -221,10 +305,17 @@ export function searchIndex(
     return [];
   }
 
-  const lexicalRaw = bm25Scores(index.chunks, terms);
-  const semanticRaw = index.chunks.map((chunk) =>
+  const { chunkData, averageTokenCount } = getIndexSearchData(index);
+  const lexicalRaw = bm25Scores(chunkData, averageTokenCount, terms);
+  const queryNorm = queryEmbedding ? vectorNorm(queryEmbedding) : 0;
+  const semanticRaw = index.chunks.map((chunk, position) =>
     chunk.embedding && queryEmbedding
-      ? cosineSimilarity(chunk.embedding, queryEmbedding)
+      ? cosineSimilarity(
+          chunk.embedding,
+          queryEmbedding,
+          chunkData[position].embeddingNorm,
+          queryNorm
+        )
       : 0
   );
   const lexical = normalizeScores(lexicalRaw);
@@ -235,33 +326,28 @@ export function searchIndex(
   const asksForStatistics = /(统计|数量|多少|几条|活跃|消息数)/.test(
     query
   );
+  const requiredLatinTerms = terms.filter((term) =>
+    /^[a-z0-9]/.test(term)
+  );
 
   const ranked = index.chunks
     .map((chunk, position) => {
-      const chunkTokenSet = new Set(chunk.tokens);
+      const data = chunkData[position];
+      const chunkTokenSet = data.tokenSet;
       const matchedTerms = terms.filter((term) =>
         chunkTokenSet.has(term)
       ).length;
-      const title = chunk.title.normalize("NFKC").toLowerCase();
       const titleMatches = terms.filter((term) =>
-        title.includes(term)
+        data.loweredTitle.includes(term)
       ).length;
       const matchedRun = longestMatchedRun(terms, chunkTokenSet);
-      const exactContent = loweredQuery.length >= 3 &&
-        chunk.contextualText
-          .normalize("NFKC")
-          .toLowerCase()
-          .includes(loweredQuery);
+      const exactContent =
+        loweredQuery.length >= 3 &&
+        data.loweredText.includes(loweredQuery);
       const termCoverage = matchedTerms / terms.length;
       const titleCoverage = titleMatches / terms.length;
-      const requiredLatinTerms = terms.filter((term) =>
-        /^[a-z0-9]/.test(term)
-      );
       const matchedLatinTerms = requiredLatinTerms.filter((term) =>
-        chunk.contextualText
-          .normalize("NFKC")
-          .toLowerCase()
-          .includes(term)
+        data.loweredText.includes(term)
       ).length;
       const exactBoost =
         Math.min(0.2, termCoverage * 0.2) +
@@ -382,6 +468,7 @@ export function searchDocumentMetadata(
     return [];
   }
 
+  const { firstChunkByDocument } = getIndexSearchData(index);
   const ranked = index.documents
     .map((document) => {
       const metadata = `${document.title} ${document.parentTitle}`
@@ -412,9 +499,7 @@ export function searchDocumentMetadata(
   const topScore = ranked[0]?.score || 1;
   const results: SearchResult[] = [];
   for (const item of ranked) {
-    const chunk = index.chunks.find(
-      (candidate) => candidate.documentId === item.document.id
-    );
+    const chunk = firstChunkByDocument.get(item.document.id);
     if (!chunk) {
       continue;
     }
