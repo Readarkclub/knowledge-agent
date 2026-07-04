@@ -79,13 +79,6 @@ export const searchRequestSchema = z
   })
   .strict();
 
-export const loginRequestSchema = z
-  .object({
-    username: z.string().trim().min(1).max(80),
-    password: z.string().min(1).max(256),
-  })
-  .strict();
-
 export async function parseJsonRequest<T>(
   request: Request,
   schema: z.ZodType<T>,

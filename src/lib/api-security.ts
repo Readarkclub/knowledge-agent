@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { getAuthenticatedUser } from "@/lib/auth";
 
-type RateLimitPolicy = {
+export type RateLimitPolicy = {
   limit: number;
   windowMs: number;
 };
@@ -11,19 +10,12 @@ type RateLimitEntry = {
   resetAt: number;
 };
 
-type RateLimitResult = {
+export type RateLimitResult = {
   allowed: boolean;
   limit: number;
   remaining: number;
   resetAt: number;
 };
-
-type GuardResult =
-  | { response: Response }
-  | {
-      user: string;
-      rateLimit: RateLimitResult;
-    };
 
 const rateLimitStore = (
   globalThis as typeof globalThis & {
@@ -36,7 +28,7 @@ function clientAddress(request: Request): string {
   return forwarded || request.headers.get("x-real-ip") || "unknown";
 }
 
-function requestFingerprint(request: Request): string {
+export function requestFingerprint(request: Request): string {
   return createHash("sha256")
     .update(`${clientAddress(request)}|${request.headers.get("user-agent") || ""}`)
     .digest("hex")
@@ -46,10 +38,11 @@ function requestFingerprint(request: Request): string {
 export function consumeRateLimit(
   request: Request,
   scope: string,
-  policy: RateLimitPolicy
+  policy: RateLimitPolicy,
+  identifier = requestFingerprint(request)
 ): RateLimitResult {
   const now = Date.now();
-  const key = `${scope}:${requestFingerprint(request)}`;
+  const key = `${scope}:${identifier}`;
   const existing = rateLimitStore.get(key);
   const entry =
     !existing || existing.resetAt <= now
@@ -141,21 +134,15 @@ export function isSecureRequest(request: Request): boolean {
   }
 }
 
-export function guardApiRequest(
+export function guardPublicApiRequest(
   request: Request,
   scope: string,
   policy: RateLimitPolicy
-): GuardResult {
-  const user = getAuthenticatedUser(request);
-  if (!user) {
-    return {
-      response: Response.json(
-        { error: "登录已失效，请重新登录。" },
-        { status: 401 }
-      ),
-    };
-  }
-
+):
+  | { response: Response }
+  | {
+      rateLimit: RateLimitResult;
+    } {
   if (request.method !== "GET" && !isSameOriginRequest(request)) {
     return {
       response: Response.json(
@@ -165,10 +152,27 @@ export function guardApiRequest(
     };
   }
 
-  const rateLimit = consumeRateLimit(request, `${scope}:${user}`, policy);
+  const rateLimit = consumeRateLimit(request, scope, policy);
   if (!rateLimit.allowed) {
     return { response: rateLimitResponse(rateLimit) };
   }
 
-  return { user, rateLimit };
+  return { rateLimit };
+}
+
+export function isLocalRequest(request: Request): boolean {
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
+
+  try {
+    const hostname = new URL(request.url).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
 }

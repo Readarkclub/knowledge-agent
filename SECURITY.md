@@ -2,12 +2,13 @@
 
 ## Required environment variables
 
-The application fails closed until these values are configured:
+Public pages do not require authentication. Expensive AI and embedding endpoints
+fail closed until these protection values are configured:
 
 ```ini
-AUTH_USERNAME=admin
-AUTH_PASSWORD=<a unique high-entropy password>
-AUTH_SESSION_SECRET=<at least 32 random characters>
+VISITOR_SESSION_SECRET=<at least 32 random characters>
+UPSTASH_REDIS_REST_URL=<Vercel Marketplace Upstash URL>
+UPSTASH_REDIS_REST_TOKEN=<Vercel Marketplace Upstash token>
 API_SECRET_KEY=<newly issued model gateway key>
 ```
 
@@ -17,16 +18,19 @@ Generate the session secret locally:
 [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(48))
 ```
 
-Never reuse `API_SECRET_KEY` as the login password or session secret.
+Never reuse `API_SECRET_KEY` as the visitor session secret.
 
-## Credential rotation checklist
+## Secret rotation checklist
 
 1. Revoke the exposed model gateway key with the gateway administrator.
 2. Issue a new key and update `API_SECRET_KEY` in local and Vercel environments.
-3. Generate new `AUTH_PASSWORD` and `AUTH_SESSION_SECRET` values.
+3. Generate a new `VISITOR_SESSION_SECRET`; existing anonymous visitor cookies
+   will be replaced automatically.
 4. Re-authenticate the Vercel CLI only when deploying.
-5. Deploy, then verify that unauthenticated `/`, `/resources`, and `/api/*`
-   requests are rejected.
+5. Rotate the Upstash REST token from the Marketplace integration if it may
+   have been exposed.
+6. Deploy, then verify that `/` and `/resources` remain public while automated
+   or over-quota `/api/chat` requests are rejected.
 
 The local `.vercel-cli-auth` directory and all `.env*` files are excluded from
 Vercel uploads.
@@ -43,18 +47,24 @@ KNOWLEDGE_ALLOWED_CITATION_DOC_IDS=doc-token-1,doc-token-2
 
 Keep this list minimal. A new external citation is rejected by default.
 
-## Rate limiting
+## Abuse protection
 
-The built-in limiter is per application instance and protects common abuse
-without another service. For strict global quotas across multiple Vercel
-instances, add a managed distributed limiter or Vercel Firewall rule.
+- BotID Basic runs invisibly on `/api/chat` and `/api/search`.
+- A signed, HttpOnly anonymous visitor cookie supplies a stable quota identity.
+- Upstash Redis enforces visitor, network fingerprint, and global daily limits
+  across Vercel instances.
+- Vercel Firewall applies a 10 requests/minute burst limit to `/api/chat`,
+  keyed by IP and JA4 before the request reaches the function.
+- Chat output is capped at 2048 tokens.
+- Production fails closed when Redis or BotID verification is unavailable.
 
 ## Decision log
 
-- Authentication uses a single-user password and an HMAC-signed, HttpOnly,
-  SameSite=Strict session cookie.
-- Proxy redirects are only the first check; every protected API validates the
-  session again.
+- Knowledge pages, resources, status, and content are intentionally public.
+- Authentication routes and the login proxy were removed.
+- Anonymous identity is used only for abuse quotas, not access authorization.
+- The sync route remains unavailable on Vercel and is accepted only from a
+  local development server.
 - Request bodies are type-checked and size-limited before retrieval or model
   calls.
 - Query traces are opt-in and store hashes and lengths rather than raw content.

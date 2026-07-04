@@ -1,5 +1,6 @@
 import {
-  guardApiRequest,
+  guardPublicApiRequest,
+  isLocalRequest,
   rateLimitHeaders,
 } from "@/lib/api-security";
 import {
@@ -13,14 +14,6 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
-  const guard = guardApiRequest(request, "sync", {
-    limit: 3,
-    windowMs: 60 * 60 * 1000,
-  });
-  if ("response" in guard) {
-    return guard.response;
-  }
-
   if (process.env.VERCEL === "1") {
     return Response.json(
       {
@@ -29,6 +22,21 @@ export async function POST(request: Request) {
       },
       { status: 409 }
     );
+  }
+
+  if (!isLocalRequest(request)) {
+    return Response.json(
+      { ok: false, error: "同步接口仅允许在本机运行。" },
+      { status: 403 }
+    );
+  }
+
+  const guard = guardPublicApiRequest(request, "sync", {
+    limit: 3,
+    windowMs: 60 * 60 * 1000,
+  });
+  if ("response" in guard) {
+    return guard.response;
   }
 
   try {

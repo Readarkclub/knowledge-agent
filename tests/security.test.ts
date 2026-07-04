@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  SESSION_COOKIE_NAME,
-  createSessionToken,
-  verifyCredentials,
-  verifySessionToken,
-} from "../src/lib/auth";
-import { guardApiRequest } from "../src/lib/api-security";
+  VISITOR_COOKIE_NAME,
+  createVisitorToken,
+  verifyVisitorToken,
+} from "../src/lib/visitor";
+import { guardPublicApiRequest } from "../src/lib/api-security";
 import {
   isCitationAllowed,
   parseCitationAllowlist,
@@ -16,73 +15,48 @@ import {
   parseJsonRequest,
   searchRequestSchema,
 } from "../src/lib/request-validation";
+import { getUsagePolicy } from "../src/lib/usage-limits";
 import { sanitizeResourceUrl } from "../src/lib/resources";
 import { redactSensitiveText } from "../src/lib/server-errors";
 
-function withAuthEnvironment(run: () => void) {
-  const previous = {
-    username: process.env.AUTH_USERNAME,
-    password: process.env.AUTH_PASSWORD,
-    secret: process.env.AUTH_SESSION_SECRET,
-  };
-  process.env.AUTH_USERNAME = "admin";
-  process.env.AUTH_PASSWORD = "correct-password";
-  process.env.AUTH_SESSION_SECRET =
-    "test-session-secret-that-is-longer-than-32-characters";
-
-  try {
-    run();
-  } finally {
-    if (previous.username === undefined) delete process.env.AUTH_USERNAME;
-    else process.env.AUTH_USERNAME = previous.username;
-    if (previous.password === undefined) delete process.env.AUTH_PASSWORD;
-    else process.env.AUTH_PASSWORD = previous.password;
-    if (previous.secret === undefined) delete process.env.AUTH_SESSION_SECRET;
-    else process.env.AUTH_SESSION_SECRET = previous.secret;
-  }
-}
-
-test("creates and verifies signed authentication sessions", () => {
-  withAuthEnvironment(() => {
-    assert.equal(verifyCredentials("admin", "correct-password"), true);
-    assert.equal(verifyCredentials("admin", "wrong-password"), false);
-
-    const token = createSessionToken("admin");
-    assert.equal(verifySessionToken(token)?.sub, "admin");
-    assert.equal(verifySessionToken(`${token}tampered`), null);
-  });
+test("creates and verifies signed anonymous visitor sessions", () => {
+  const visitorId = "b36f6d47-f105-4e85-a6c5-386c1eab6354";
+  const token = createVisitorToken(visitorId);
+  assert.equal(verifyVisitorToken(token)?.id, visitorId);
+  assert.equal(verifyVisitorToken(`${token}tampered`), null);
 });
 
-test("API guard rejects missing sessions and cross-origin requests", () => {
-  withAuthEnvironment(() => {
-    const unauthenticated = guardApiRequest(
-      new Request("https://knowledge.example/api/search"),
-      "test-unauthenticated",
-      { limit: 10, windowMs: 60_000 }
-    );
-    assert.equal(
-      "response" in unauthenticated
-        ? unauthenticated.response.status
-        : 200,
-      401
-    );
+test("public API guard allows anonymous same-origin and rejects cross-origin requests", () => {
+  const anonymous = guardPublicApiRequest(
+    new Request("https://knowledge.example/api/status"),
+    "test-anonymous",
+    { limit: 10, windowMs: 60_000 }
+  );
+  assert.equal("response" in anonymous ? anonymous.response.status : 200, 200);
 
-    const token = createSessionToken("admin");
-    const crossOrigin = guardApiRequest(
-      new Request("https://knowledge.example/api/search", {
-        method: "POST",
-        headers: {
-          cookie: `${SESSION_COOKIE_NAME}=${token}`,
-          origin: "https://attacker.example",
-        },
-      }),
-      "test-cross-origin",
-      { limit: 10, windowMs: 60_000 }
-    );
-    assert.equal(
-      "response" in crossOrigin ? crossOrigin.response.status : 200,
-      403
-    );
+  const crossOrigin = guardPublicApiRequest(
+    new Request("https://knowledge.example/api/search", {
+      method: "POST",
+      headers: {
+        cookie: `${VISITOR_COOKIE_NAME}=invalid`,
+        origin: "https://attacker.example",
+      },
+    }),
+    "test-cross-origin",
+    { limit: 10, windowMs: 60_000 }
+  );
+  assert.equal(
+    "response" in crossOrigin ? crossOrigin.response.status : 200,
+    403
+  );
+});
+
+test("uses conservative default public chat quotas", () => {
+  assert.deepEqual(getUsagePolicy("chat"), {
+    minute: 5,
+    daily: 30,
+    fingerprintDaily: 60,
+    globalDaily: 500,
   });
 });
 

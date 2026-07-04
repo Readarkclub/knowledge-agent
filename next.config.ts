@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withBotId } from "botid/next/config";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
 const contentSecurityPolicy = [
@@ -67,4 +68,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withBotId(nextConfig);

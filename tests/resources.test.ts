@@ -4,6 +4,7 @@ import {
   categorizeResource,
   extractResourceLinks,
   mergeResourceLinks,
+  sortResourceLinksByLatestMention,
 } from "../src/lib/resources";
 
 const input = {
@@ -79,6 +80,50 @@ test("相同链接跨周报合并并保留提及来源", () => {
   assert.equal(resources.length, 1);
   assert.equal(resources[0].mentions.length, 2);
   assert.equal(resources[0].category, "Skill / 知识库 / 工作流");
+});
+
+test("资源按最近一次周报提及日期倒序排列", () => {
+  const repeatedOld = extractResourceLinks({
+    ...input,
+    documentTitle: "人人智学社报告2025-01-01~2025-01-05",
+    markdown: "[重复资源](https://example.com/repeated)",
+  });
+  const repeatedLatest = extractResourceLinks({
+    ...input,
+    documentId: "weekly-latest",
+    documentTitle: "人人智学社报告2026-06-08~2026-06-14",
+    markdown: "[重复资源](https://example.com/repeated)",
+  });
+  const newer = extractResourceLinks({
+    ...input,
+    documentId: "weekly-newer",
+    documentTitle: "人人智学社报告2026-06-01~2026-06-07",
+    markdown: "[较新资源](https://example.com/newer)",
+  });
+  const older = extractResourceLinks({
+    ...input,
+    documentId: "weekly-older",
+    documentTitle: "人人智学社报告2025-12-01~2025-12-07",
+    markdown: "[较旧资源](https://example.com/older)",
+  });
+
+  const resources = sortResourceLinksByLatestMention(
+    mergeResourceLinks([
+      ...repeatedOld,
+      ...repeatedLatest,
+      ...newer,
+      ...older,
+    ])
+  );
+
+  assert.deepEqual(
+    resources.map((resource) => resource.url),
+    [
+      "https://example.com/repeated",
+      "https://example.com/newer",
+      "https://example.com/older",
+    ]
+  );
 });
 
 test("分类覆盖参考图中的主要主题", () => {

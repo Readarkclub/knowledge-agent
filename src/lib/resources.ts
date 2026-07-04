@@ -17,6 +17,39 @@ type ExtractResourceInput = {
   markdown: string;
 };
 
+function resourceMentionEndTime(mention: ResourceMention): number {
+  const match = mention.documentTitle
+    .replace(/\\~/g, "~")
+    .match(
+      /\d{4}-\d{2}-\d{2}\s*(?:~|～|至)\s*(\d{4}-\d{2}-\d{2})/
+    );
+  return match ? Date.parse(`${match[1]}T00:00:00Z`) : 0;
+}
+
+/** Returns a new resource list ordered by its most recent weekly-report mention. */
+export function sortResourceLinksByLatestMention(
+  resources: ResourceLink[]
+): ResourceLink[] {
+  return [...resources].sort((left, right) => {
+    const leftTime = Math.max(
+      0,
+      ...left.mentions.map(resourceMentionEndTime)
+    );
+    const rightTime = Math.max(
+      0,
+      ...right.mentions.map(resourceMentionEndTime)
+    );
+
+    return (
+      rightTime - leftTime ||
+      left.title.localeCompare(right.title, "zh-CN", {
+        numeric: true,
+      }) ||
+      left.normalizedUrl.localeCompare(right.normalizedUrl)
+    );
+  });
+}
+
 const CATEGORY_KEYWORDS: Record<
   Exclude<ResourceCategory, "其他">,
   string[]

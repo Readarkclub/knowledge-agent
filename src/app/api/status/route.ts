@@ -1,5 +1,5 @@
 import {
-  guardApiRequest,
+  guardPublicApiRequest,
   rateLimitHeaders,
 } from "@/lib/api-security";
 import {
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const requestId = crypto.randomUUID();
   try {
-    const guard = guardApiRequest(request, "status", {
+    const guard = guardPublicApiRequest(request, "status", {
       limit: 120,
       windowMs: 60 * 1000,
     });

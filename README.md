@@ -7,6 +7,8 @@
 - GLM 流式回答与原文引用
 - 周报资源链接自动分类、去重和追溯
 - Next.js 网页交互界面
+- 页面与资源公开访问，无需输入账号密码
+- BotID 隐形人机验证、匿名访客配额与全站每日熔断
 - 移动端长回答独立滚动
 - 深色 / 浅色主题切换并记住个人偏好
 
@@ -28,9 +30,12 @@ npm run dev
 
 ```ini
 API_SECRET_KEY=
-GEMINI_GATEWAY_URL=https://api.readark.club/api
+GEMINI_GATEWAY_URL=
 AI_MODEL=gemini-2.5-flash
 EMBEDDING_PROVIDER=gemini
+VISITOR_SESSION_SECRET=<至少 32 位随机字符串>
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
 ```
 
 - 知识问答使用 Gemini 原生 `v1beta1` 协议；网关地址末尾的
@@ -39,6 +44,10 @@ EMBEDDING_PROVIDER=gemini
   `GEMINI_GATEWAY_URL` 生成 `gemini-embedding-2` 向量。
 - 切换为 `EMBEDDING_PROVIDER=zhipu` 时使用 `embedding-3` 的
   512 维输出；修改向量提供方后需重新执行 `npm run sync`。
+- 生产环境必须配置 Upstash Redis；缺少分布式配额时，页面仍可公开浏览，
+  但 `/api/chat` 与 `/api/search` 会安全停用，避免无保护消耗模型额度。
+- 默认问答配额为每位匿名访客 5 次/分钟、30 次/天，全站 500 次/天；
+  可使用 `.env.example` 中的额度变量调整。
 
 ## 同步与部署
 

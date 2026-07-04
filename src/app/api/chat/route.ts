@@ -8,9 +8,9 @@ import {
 import type { GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { getKnowledgeModel } from "@/lib/ai";
 import {
-  guardApiRequest,
-  rateLimitHeaders,
-} from "@/lib/api-security";
+  applyUsageAccess,
+  guardUsageRequest,
+} from "@/lib/usage-limits";
 import { RETRIEVAL } from "@/lib/config";
 import { buildKnowledgeSystemPrompt } from "@/lib/prompt";
 import {
@@ -85,15 +85,10 @@ export async function POST(request: Request) {
   let trace = createTrace("");
   const requestId = crypto.randomUUID();
   try {
-    const guard = guardApiRequest(request, "chat", {
-      limit: 20,
-      windowMs: 10 * 60 * 1000,
-    });
+    const guard = await guardUsageRequest(request, "chat");
     if ("response" in guard) {
       return guard.response;
     }
-    const headers = rateLimitHeaders(guard.rateLimit);
-
     const parsed = await parseJsonRequest(request, chatRequestSchema);
     if ("response" in parsed) {
       return parsed.response;
@@ -120,7 +115,10 @@ export async function POST(request: Request) {
         topScore: reports.length ? 1 : 0,
         topTitles: reports.map((r) => r.document.title).slice(0, 3),
       });
-      return streamTextAnswer(answer, "recent-weekly-report-list", headers);
+      return applyUsageAccess(
+        streamTextAnswer(answer, "recent-weekly-report-list"),
+        guard.access
+      );
     }
 
     if (reportRoute?.type === "monthly-count") {
@@ -135,7 +133,10 @@ export async function POST(request: Request) {
         topScore: reports.length ? 1 : 0,
         topTitles: reports.map((r) => r.document.title).slice(0, 3),
       });
-      return streamTextAnswer(answer, "weekly-report-count", headers);
+      return applyUsageAccess(
+        streamTextAnswer(answer, "weekly-report-count"),
+        guard.access
+      );
     }
 
     if (reportRoute?.type === "monthly-list") {
@@ -150,7 +151,10 @@ export async function POST(request: Request) {
         topScore: reports.length ? 1 : 0,
         topTitles: reports.map((r) => r.document.title).slice(0, 3),
       });
-      return streamTextAnswer(answer, "weekly-report-list", headers);
+      return applyUsageAccess(
+        streamTextAnswer(answer, "weekly-report-list"),
+        guard.access
+      );
     }
 
     if (reportRoute?.type === "total-count") {
@@ -162,7 +166,10 @@ export async function POST(request: Request) {
         topScore: reports.length ? 1 : 0,
         topTitles: reports.map((r) => r.document.title).slice(-3),
       });
-      return streamTextAnswer(answer, "weekly-report-total-count", headers);
+      return applyUsageAccess(
+        streamTextAnswer(answer, "weekly-report-total-count"),
+        guard.access
+      );
     }
 
     const latestReport = reportRoute?.type === "latest"
@@ -181,7 +188,10 @@ export async function POST(request: Request) {
         topScore: 1,
         topTitles: [latestReport.document.title],
       });
-      return streamTextAnswer(answer, "latest-weekly-report", headers);
+      return applyUsageAccess(
+        streamTextAnswer(answer, "latest-weekly-report"),
+        guard.access
+      );
     }
 
     const filteredIndex = latestReport
@@ -220,7 +230,10 @@ export async function POST(request: Request) {
         topTitles,
         retrievalStrategy: searchOutcome?.strategy,
       });
-      return streamTextAnswer(answer, "evidence-empty", headers);
+      return applyUsageAccess(
+        streamTextAnswer(answer, "evidence-empty"),
+        guard.access
+      );
     }
 
     trace.finish({
@@ -238,7 +251,7 @@ export async function POST(request: Request) {
       model: getKnowledgeModel(),
       system: buildKnowledgeSystemPrompt(sources),
       messages: await convertToModelMessages(messages),
-      maxOutputTokens: 4096,
+      maxOutputTokens: 2048,
       providerOptions: {
         google: {
           thinkingConfig: {
@@ -249,10 +262,7 @@ export async function POST(request: Request) {
       temperature: 0.2,
     });
 
-    const response = result.toUIMessageStreamResponse();
-    const responseHeaders = new Headers(headers);
-    responseHeaders.forEach((value, key) => response.headers.set(key, value));
-    return response;
+    return applyUsageAccess(result.toUIMessageStreamResponse(), guard.access);
   } catch (error) {
     trace.finish({
       route: "llm",

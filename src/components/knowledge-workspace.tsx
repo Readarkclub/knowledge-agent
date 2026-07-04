@@ -33,7 +33,6 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { LogoutButton } from "@/components/logout-button";
 import { Button } from "@/components/ui/button";
 import type { SearchResult, SyncState } from "@/lib/types";
 
@@ -187,7 +186,6 @@ export function KnowledgeWorkspace({
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <LogoutButton />
           </div>
         </div>
 
@@ -308,7 +306,6 @@ export function KnowledgeWorkspace({
           </div>
           <div className="flex items-center gap-2 sm:hidden">
             <ThemeToggle />
-            <LogoutButton />
             <Link
               aria-label="打开资源索引"
               className="grid size-8 place-items-center rounded-full border border-white/10 text-white/48 transition hover:bg-white/[0.05] hover:text-white"

@@ -15,7 +15,6 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { LogoutButton } from "@/components/logout-button";
 import {
   RESOURCE_CATEGORIES,
   type ResourceCategory,
@@ -124,7 +123,6 @@ export function ResourceIndex({
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <LogoutButton />
           </div>
         </div>
 
@@ -213,7 +211,6 @@ export function ResourceIndex({
           </div>
           <div className="flex items-center gap-2 sm:hidden">
             <ThemeToggle />
-            <LogoutButton />
             <Link
               className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-white/52 transition hover:bg-white/[0.05] hover:text-white"
               href="/"

@@ -39,7 +39,8 @@ function normalizeNode(node: RawNode): WikiNode {
 
 async function runLark<T>(
   args: string[],
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  context = "lark-cli"
 ): Promise<LarkResponse<T>> {
   const isWindows = process.platform === "win32";
   const larkScript =
@@ -58,72 +59,98 @@ async function runLark<T>(
       ]
     : args;
 
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, commandArgs, {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
+  const isRetryable = (message: string) =>
+    /EOF|transport|context deadline exceeded|timed out|connection reset/i.test(
+      message
+    );
 
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`lark-cli 超时（${Math.round(timeoutMs / 1000)} 秒）`));
-    }, timeoutMs);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const child = spawn(command, commandArgs, {
+          cwd: process.cwd(),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+        let stdout = "";
+        let stderr = "";
 
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
+        const timer = setTimeout(() => {
+          child.kill();
+          reject(
+            new Error(`lark-cli timeout (${Math.round(timeoutMs / 1000)}s)`)
+          );
+        }, timeoutMs);
 
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
 
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(
-          new Error(
-            `lark-cli 退出码 ${code}: ${(stderr || stdout).slice(0, 600)}`
-          )
+        child.on("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (code !== 0) {
+            reject(
+              new Error(
+                `lark-cli exit ${code}: ${(stderr || stdout).slice(0, 600)}`
+              )
+            );
+            return;
+          }
+
+          const start = stdout.indexOf("{");
+          const end = stdout.lastIndexOf("}");
+          if (start < 0 || end < start) {
+            reject(new Error(`lark-cli did not return JSON: ${stdout.slice(0, 400)}`));
+            return;
+          }
+
+          try {
+            const payload = JSON.parse(stdout.slice(start, end + 1)) as LarkResponse<T>;
+            if (!payload.ok) {
+              reject(new Error(payload.error?.message || "lark-cli request failed"));
+              return;
+            }
+            resolve(payload);
+          } catch (error) {
+            reject(
+              new Error(
+                `failed to parse lark-cli JSON: ${(error as Error).message}; ${stdout.slice(
+                  0,
+                  300
+                )}`
+              )
+            );
+          }
+        });
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      if (attempt < 3 && isRetryable(message)) {
+        console.error(
+          `[${context}] retry ${attempt}/3 after transient error: ${message}`
         );
-        return;
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        continue;
       }
+      if (attempt > 1) {
+        console.error(`[${context}] failed after ${attempt} attempts: ${message}`);
+      }
+      throw error;
+    }
+  }
 
-      const start = stdout.indexOf("{");
-      const end = stdout.lastIndexOf("}");
-      if (start < 0 || end < start) {
-        reject(new Error(`lark-cli 未返回 JSON: ${stdout.slice(0, 400)}`));
-        return;
-      }
-
-      try {
-        const payload = JSON.parse(stdout.slice(start, end + 1)) as LarkResponse<T>;
-        if (!payload.ok) {
-          reject(new Error(payload.error?.message || "lark-cli 请求失败"));
-          return;
-        }
-        resolve(payload);
-      } catch (error) {
-        reject(
-          new Error(
-            `无法解析 lark-cli JSON: ${(error as Error).message}; ${stdout.slice(
-              0,
-              300
-            )}`
-          )
-        );
-      }
-    });
-  });
+  throw new Error("lark-cli request failed after retries");
 }
 
 export async function getWikiNode(nodeTokenOrUrl: string): Promise<WikiNode> {
@@ -136,7 +163,7 @@ export async function getWikiNode(nodeTokenOrUrl: string): Promise<WikiNode> {
     "user",
     "--format",
     "json",
-  ]);
+  ], 120_000, `wiki node-get ${nodeTokenOrUrl}`);
   return normalizeNode(response.data);
 }
 
@@ -160,7 +187,7 @@ export async function listWikiNodes(
     "user",
     "--format",
     "json",
-  ]);
+  ], 120_000, `wiki node-list ${spaceId}/${parentNodeToken}`);
   return (response.data.nodes || []).map(normalizeNode);
 }
 
@@ -204,7 +231,8 @@ export async function fetchWikiDocument(nodeToken: string): Promise<{
       "--format",
       "json",
     ],
-    180_000
+    180_000,
+    `docs fetch ${nodeToken}`
   );
 
   return {
@@ -212,4 +240,3 @@ export async function fetchWikiDocument(nodeToken: string): Promise<{
     markdown: response.data.document.content || "",
   };
 }
-

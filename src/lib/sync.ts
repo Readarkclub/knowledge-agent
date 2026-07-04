@@ -4,6 +4,7 @@ import {
   isCitationAllowed,
   parseCitationAllowlist,
 } from "@/lib/citations";
+import { parseWeeklyReportRange } from "@/lib/reports";
 import { KNOWLEDGE_SOURCE } from "@/lib/config";
 import { chunkDocument } from "@/lib/chunking";
 import {
@@ -118,7 +119,10 @@ async function performSync(): Promise<KnowledgeIndex> {
       for (const citation of extractWeeklyReportCitations(
         source.document?.markdown || ""
       )) {
-        if (!isCitationAllowed(citation.docId, wikiTokens, citationAllowlist)) {
+        if (
+          !isCitationAllowed(citation.docId, wikiTokens, citationAllowlist) &&
+          !parseWeeklyReportRange(citation.title)
+        ) {
           warnings.push(`已忽略未授权的外部引用：${citation.title}`);
           continue;
         }

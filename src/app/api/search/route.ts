@@ -1,7 +1,7 @@
 import {
-  guardApiRequest,
-  rateLimitHeaders,
-} from "@/lib/api-security";
+  applyUsageAccess,
+  guardUsageRequest,
+} from "@/lib/usage-limits";
 import {
   latestWeeklyReportSources,
   recentWeeklyReportListSources,
@@ -24,10 +24,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   try {
-    const guard = guardApiRequest(request, "search", {
-      limit: 60,
-      windowMs: 60 * 1000,
-    });
+    const guard = await guardUsageRequest(request, "search");
     if ("response" in guard) {
       return guard.response;
     }
@@ -52,9 +49,9 @@ export async function POST(request: Request) {
             ? latestWeeklyReportSources(index, query)
             : await searchKnowledge(index, query);
 
-    return Response.json(
-      { results, sync: index.sync },
-      { headers: rateLimitHeaders(guard.rateLimit) }
+    return applyUsageAccess(
+      Response.json({ results, sync: index.sync }),
+      guard.access
     );
   } catch (error) {
     reportServerError("search", error, requestId);
