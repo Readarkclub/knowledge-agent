@@ -36,7 +36,7 @@ export function tokenize(text: string): string[] {
     }
   }
 
-  for (const match of normalized.matchAll(/[\u3400-\u9fff]+/g)) {
+  for (const match of normalized.matchAll(/[㐀-鿿]+/g)) {
     const run = match[0];
     for (const char of run) {
       if (!STOP_WORDS.has(char)) {
@@ -113,11 +113,19 @@ function splitWithOverlap(content: string): string[] {
     let end = idealEnd;
 
     if (idealEnd < content.length) {
-      const searchStart = Math.max(start + 400, idealEnd - 240);
+      // 边界窗口：块至少填充 60%，且回退不超过 240 字符。
+      // 旧实现固定 start + 400，在 430 的块大小下只剩 30 字符窗口，
+      // 绝大多数超长章节都会被硬切在句子中间。
+      const searchStart = Math.max(
+        start + Math.floor(RETRIEVAL.chunkSize * 0.6),
+        idealEnd - 240
+      );
       const boundary = Math.max(
-        content.lastIndexOf("\n\n", idealEnd),
+        content.lastIndexOf("\n", idealEnd),
         content.lastIndexOf("。", idealEnd),
-        content.lastIndexOf("；", idealEnd)
+        content.lastIndexOf("；", idealEnd),
+        content.lastIndexOf("！", idealEnd),
+        content.lastIndexOf("？", idealEnd)
       );
       if (boundary >= searchStart) {
         end = boundary + 1;
