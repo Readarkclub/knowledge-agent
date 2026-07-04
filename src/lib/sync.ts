@@ -7,7 +7,7 @@ import {
 import { KNOWLEDGE_SOURCE } from "@/lib/config";
 import { chunkDocument } from "@/lib/chunking";
 import {
-  embedInBatches,
+  embedInBatchesBestEffort,
   getEmbeddingProviderName,
   hasEmbeddingProvider,
 } from "@/lib/embeddings";
@@ -218,8 +218,10 @@ async function performSync(): Promise<KnowledgeIndex> {
         revisionId: document.revisionId,
         syncedAt: startedAt,
       });
+      // 复用块必须拷贝：previous 来自跨请求共享的索引缓存，
+      // 后续补向量是原地赋值，直接复用会改写共享对象。
       const reusableChunks = existingDocumentChunks.map((chunk) =>
-        providerChanged ? { ...chunk, embedding: undefined } : chunk
+        providerChanged ? { ...chunk, embedding: undefined } : { ...chunk }
       );
       chunks.push(...reusableChunks);
       chunksNeedingEmbeddings.push(
@@ -257,16 +259,17 @@ async function performSync(): Promise<KnowledgeIndex> {
   }
 
   if (chunksNeedingEmbeddings.length && hasEmbeddingProvider()) {
-    try {
-      const vectors = await embedInBatches(
-        chunksNeedingEmbeddings.map((chunk) => chunk.contextualText),
-        "document"
+    const outcome = await embedInBatchesBestEffort(
+      chunksNeedingEmbeddings.map((chunk) => chunk.contextualText),
+      "document"
+    );
+    outcome.vectors.forEach((vector, index) => {
+      chunksNeedingEmbeddings[index].embedding = vector;
+    });
+    if (outcome.failure) {
+      warnings.push(
+        `语义向量生成中断（已完成 ${outcome.vectors.length}/${chunksNeedingEmbeddings.length}），其余块降级为关键词检索：${outcome.failure.message}`
       );
-      chunksNeedingEmbeddings.forEach((chunk, index) => {
-        chunk.embedding = vectors[index];
-      });
-    } catch (error) {
-      warnings.push(`语义向量生成失败，已降级为关键词检索：${(error as Error).message}`);
     }
   } else if (chunksNeedingEmbeddings.length) {
     warnings.push("未配置可用的向量模型密钥，当前仅启用关键词检索。");
