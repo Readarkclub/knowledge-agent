@@ -34,6 +34,7 @@ import {
 } from "@/components/ai-elements/message";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { prepareChatRequestMessages } from "@/lib/chat-request";
 import { repairInlineCitations } from "@/lib/citations";
 import type { SearchResult, SyncState } from "@/lib/types";
 
@@ -106,7 +107,21 @@ export function KnowledgeWorkspace({
   const [mobileSourcesOpen, setMobileSourcesOpen] = useState(false);
 
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: "/api/chat" }),
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        prepareSendMessagesRequest({ body, id, messageId, messages, trigger }) {
+          return {
+            body: {
+              ...(body ?? {}),
+              id,
+              messages: prepareChatRequestMessages(messages),
+              trigger,
+              messageId,
+            },
+          };
+        },
+      }),
     []
   );
   const { messages, sendMessage, status, error } = useChat({ transport });

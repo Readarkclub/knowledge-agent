@@ -18,6 +18,7 @@ import {
 import { getUsagePolicy } from "../src/lib/usage-limits";
 import { sanitizeResourceUrl } from "../src/lib/resources";
 import { redactSensitiveText } from "../src/lib/server-errors";
+import { prepareChatRequestMessages } from "../src/lib/chat-request";
 
 test("creates and verifies signed anonymous visitor sessions", () => {
   const visitorId = "b36f6d47-f105-4e85-a6c5-386c1eab6354";
@@ -119,6 +120,39 @@ test("accepts the installed AI SDK chat transport request envelope", () => {
     }).success,
     true
   );
+});
+
+test("removes display-only source parts before chat request validation", () => {
+  const messages = prepareChatRequestMessages([
+    {
+      id: "message-1",
+      role: "user",
+      parts: [{ type: "text", text: "第一问" }],
+    },
+    {
+      id: "message-2",
+      role: "assistant",
+      parts: [
+        {
+          type: "source-url",
+          sourceId: "1",
+          url: "https://example.com/source",
+          title: "引用来源",
+        },
+        { type: "text", text: "带引用的回答。" },
+      ],
+    },
+    {
+      id: "message-3",
+      role: "user",
+      parts: [{ type: "text", text: "openclaw" }],
+    },
+  ]);
+
+  assert.deepEqual(messages[1].parts, [
+    { type: "text", text: "带引用的回答。" },
+  ]);
+  assert.equal(chatRequestSchema.safeParse({ messages }).success, true);
 });
 
 test("limits citations to trusted tokens", () => {
