@@ -32,6 +32,26 @@ function parseAttributes(source: string): Record<string, string> {
   return attributes;
 }
 
+const INLINE_CITATION_PATTERN = /\[来源\s*(\d+)\](?:\([^)]*\))?/g;
+
+/**
+ * 模型偶尔会漏写 [来源 N](url) 里的括号链接，导致引用渲染成不可点击的
+ * 纯文本。证据链接本身是确定的（来自检索结果），所以按编号用权威链接
+ * 改写，不依赖模型是否老实带上括号，也会纠正模型误写的链接。
+ */
+export function repairInlineCitations(
+  text: string,
+  sourceUrls: Map<string, string>
+): string {
+  if (sourceUrls.size === 0) {
+    return text;
+  }
+  return text.replace(INLINE_CITATION_PATTERN, (match, id: string) => {
+    const url = sourceUrls.get(id);
+    return url ? `[来源 ${id}](${url})` : match;
+  });
+}
+
 export function extractWeeklyReportCitations(
   markdown: string
 ): WeeklyReportCitation[] {

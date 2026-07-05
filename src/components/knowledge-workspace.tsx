@@ -34,6 +34,7 @@ import {
 } from "@/components/ai-elements/message";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { repairInlineCitations } from "@/lib/citations";
 import type { SearchResult, SyncState } from "@/lib/types";
 
 const SUGGESTIONS = [
@@ -60,6 +61,16 @@ function messageText(message: UIMessage): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("");
+}
+
+function messageSourceUrls(message: UIMessage): Map<string, string> {
+  const urls = new Map<string, string>();
+  for (const part of message.parts) {
+    if (part.type === "source-url") {
+      urls.set(part.sourceId, part.url);
+    }
+  }
+  return urls;
 }
 
 function displayErrorMessage(value?: string): string {
@@ -394,7 +405,10 @@ export function KnowledgeWorkspace({
                   >
                     {message.role === "assistant" ? (
                       <MessageResponse className="max-w-none dark:prose-invert [&_a]:text-amber-200 [&_a]:underline-offset-4 [&_h3]:mt-7 [&_h3]:text-base [&_li]:my-1">
-                        {messageText(message)}
+                        {repairInlineCitations(
+                          messageText(message),
+                          messageSourceUrls(message)
+                        )}
                       </MessageResponse>
                     ) : (
                       <p>{messageText(message)}</p>

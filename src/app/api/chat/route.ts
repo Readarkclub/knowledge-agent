@@ -262,7 +262,27 @@ export async function POST(request: Request) {
       temperature: 0.2,
     });
 
-    return applyUsageAccess(result.toUIMessageStreamResponse(), guard.access);
+    // 把证据链接作为 source-url part 随消息下发，而不是只靠模型在正文里
+    // 拼出 [来源 N](url)——模型偶尔会漏掉括号里的链接，导致引用文字不可点击。
+    // 客户端据此可以在展示前用权威 URL 修补引用标记。
+    const stream = createUIMessageStream({
+      execute({ writer }) {
+        for (const [index, source] of sources.entries()) {
+          writer.write({
+            type: "source-url",
+            sourceId: String(index + 1),
+            url: source.url,
+            title: source.title,
+          });
+        }
+        writer.merge(result.toUIMessageStream());
+      },
+    });
+
+    return applyUsageAccess(
+      createUIMessageStreamResponse({ stream }),
+      guard.access
+    );
   } catch (error) {
     trace.finish({
       route: "llm",

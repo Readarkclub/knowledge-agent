@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractWeeklyReportCitations } from "../src/lib/citations";
+import {
+  extractWeeklyReportCitations,
+  repairInlineCitations,
+} from "../src/lib/citations";
 
 test("extracts cited weekly docx reports", () => {
   const markdown = [
@@ -27,4 +30,40 @@ test("ignores non-weekly and non-docx citations", () => {
   ].join("\n");
 
   assert.deepEqual(extractWeeklyReportCitations(markdown), []);
+});
+
+test("repairInlineCitations links a bare [来源 N] marker missing its URL", () => {
+  const text = "哲学话题为热潮提供了思考入口 [来源 1]。知识库讨论了Agent [来源 2]。";
+  const urls = new Map([
+    ["1", "https://renrenai.feishu.cn/wiki/aaa"],
+    ["2", "https://renrenai.feishu.cn/wiki/bbb"],
+  ]);
+
+  assert.equal(
+    repairInlineCitations(text, urls),
+    "哲学话题为热潮提供了思考入口 [来源 1](https://renrenai.feishu.cn/wiki/aaa)。" +
+      "知识库讨论了Agent [来源 2](https://renrenai.feishu.cn/wiki/bbb)。"
+  );
+});
+
+test("repairInlineCitations overrides an already-linked marker with the authoritative URL", () => {
+  const text = "参考 [来源 1](https://hallucinated.example/wrong)。";
+  const urls = new Map([["1", "https://renrenai.feishu.cn/wiki/real"]]);
+
+  assert.equal(
+    repairInlineCitations(text, urls),
+    "参考 [来源 1](https://renrenai.feishu.cn/wiki/real)。"
+  );
+});
+
+test("repairInlineCitations leaves markers without a known source untouched", () => {
+  const text = "没有证据支持的引用 [来源 9]。";
+  const urls = new Map([["1", "https://renrenai.feishu.cn/wiki/real"]]);
+
+  assert.equal(repairInlineCitations(text, urls), text);
+});
+
+test("repairInlineCitations is a no-op when no sources are supplied", () => {
+  const text = "没有证据的回答，不含引用。";
+  assert.equal(repairInlineCitations(text, new Map()), text);
 });
