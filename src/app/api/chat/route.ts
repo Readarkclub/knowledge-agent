@@ -14,6 +14,10 @@ import {
 import { RETRIEVAL } from "@/lib/config";
 import { buildKnowledgeSystemPrompt } from "@/lib/prompt";
 import {
+  buildRetrievalQuery,
+  isSynthesisKnowledgeQuery,
+} from "@/lib/query";
+import {
   chatRequestSchema,
   parseJsonRequest,
 } from "@/lib/request-validation";
@@ -30,7 +34,7 @@ import {
   latestWeeklyReportSources,
   routeWeeklyReportQuery,
 } from "@/lib/reports";
-import { searchKnowledgeDetailed } from "@/lib/search";
+import { searchKnowledgeForQuestion } from "@/lib/search";
 import {
   internalErrorResponse,
   reportServerError,
@@ -67,18 +71,17 @@ function streamTextAnswer(
   return response;
 }
 
-function getLatestUserText(messages: UIMessage[]): string {
-  const message = [...messages]
-    .reverse()
-    .find((item) => item.role === "user");
-
-  return (
-    message?.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n")
-      .trim() || ""
-  );
+function getUserTexts(messages: UIMessage[]): string[] {
+  return messages
+    .filter((message) => message.role === "user")
+    .map((message) =>
+      message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim()
+    )
+    .filter(Boolean);
 }
 
 export async function POST(request: Request) {
@@ -94,14 +97,16 @@ export async function POST(request: Request) {
       return parsed.response;
     }
     const messages = parsed.data.messages as UIMessage[];
-    const query = getLatestUserText(messages);
+    const userQueries = getUserTexts(messages);
+    const query = userQueries.at(-1) || "";
     if (!query) {
       return Response.json({ error: "没有可处理的问题" }, { status: 400 });
     }
+    const retrievalQuery = buildRetrievalQuery(userQueries);
 
     trace = createTrace(query);
     const index = await readIndex();
-    const reportRoute = routeWeeklyReportQuery(query);
+    const reportRoute = routeWeeklyReportQuery(retrievalQuery);
 
     if (reportRoute?.type === "recent-list") {
       const reports = findRecentWeeklyReports(index, reportRoute.limit);
@@ -172,9 +177,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const latestReport = reportRoute?.type === "latest"
-      ? findLatestWeeklyReport(index)
-      : null;
+    const latestKnowledgeReport = findLatestWeeklyReport(index);
+    const latestReport =
+      reportRoute?.type === "latest" ? latestKnowledgeReport : null;
 
     if (
       latestReport &&
@@ -203,9 +208,9 @@ export async function POST(request: Request) {
           ),
         }
       : index;
-    const searchOutcome = await searchKnowledgeDetailed(
+    const searchOutcome = await searchKnowledgeForQuestion(
       filteredIndex,
-      query,
+      retrievalQuery,
       RETRIEVAL.contextResults
     );
     const sources =
@@ -213,7 +218,7 @@ export async function POST(request: Request) {
         ? searchOutcome.results
         : latestWeeklyReportSources(
             index,
-            query,
+            retrievalQuery,
             RETRIEVAL.contextResults
           );
     const topScore = sources[0]?.score ?? 0;
@@ -249,7 +254,10 @@ export async function POST(request: Request) {
 
     const result = streamText({
       model: getKnowledgeModel(),
-      system: buildKnowledgeSystemPrompt(sources),
+      system: buildKnowledgeSystemPrompt(sources, {
+        synthesis: isSynthesisKnowledgeQuery(retrievalQuery),
+        knowledgeCutoff: latestKnowledgeReport?.range.end,
+      }),
       messages: await convertToModelMessages(messages),
       maxOutputTokens: 2048,
       providerOptions: {

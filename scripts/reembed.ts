@@ -11,8 +11,16 @@ const PROGRESS_PATH = path.join(
   "data",
   "reembed-progress.jsonl"
 );
-const BATCH_SIZE = 8;
-const BATCH_DELAY_MS = 5_000;
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const BATCH_SIZE = positiveInteger(process.env.REEMBED_BATCH_SIZE, 8);
+const BATCH_DELAY_MS = positiveInteger(
+  process.env.REEMBED_BATCH_DELAY_MS,
+  5_000
+);
 
 type ProgressHeader = {
   type: "header";

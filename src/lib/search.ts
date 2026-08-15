@@ -4,6 +4,10 @@ import {
   canUseQueryEmbeddings,
   embedTexts,
 } from "@/lib/embeddings";
+import {
+  buildKnowledgeSearchQueries,
+  isRecentKnowledgeQuery,
+} from "@/lib/query";
 import type {
   KnowledgeChunk,
   KnowledgeIndex,
@@ -20,6 +24,8 @@ export type RetrievalStrategy =
   | "keyword"
   | "rewritten"
   | "metadata"
+  | "expanded"
+  | "recent"
   | "empty";
 
 export type KnowledgeSearchOutcome = {
@@ -226,20 +232,16 @@ function normalizeScores(values: number[]): number[] {
   if (!values.length) {
     return [];
   }
-  let minimum = values[0];
-  let maximum = values[0];
+  let maximum = 0;
   for (const value of values) {
-    if (value < minimum) {
-      minimum = value;
-    }
     if (value > maximum) {
       maximum = value;
     }
   }
-  if (maximum === minimum) {
-    return values.map((value) => (value > 0 ? 1 : 0));
+  if (maximum <= 0) {
+    return values.map(() => 0);
   }
-  return values.map((value) => (value - minimum) / (maximum - minimum));
+  return values.map((value) => Math.max(0, value) / maximum);
 }
 
 function excerpt(content: string, query: string): string {
@@ -604,6 +606,159 @@ export async function searchKnowledgeDetailed(
     results: [],
     strategy: "empty",
     effectiveQuery: metadataQuery,
+  };
+}
+
+type FusedSearchResult = {
+  result: SearchResult;
+  fusionScore: number;
+  documentTime: number;
+};
+
+function reportEndTime(title: string): number {
+  const dates = [
+    ...title.matchAll(/(20\d{2})-(\d{1,2})-(\d{1,2})/g),
+  ];
+  const latest = dates.at(-1);
+  if (!latest) {
+    return 0;
+  }
+
+  return Date.UTC(
+    Number(latest[1]),
+    Number(latest[2]) - 1,
+    Number(latest[3])
+  );
+}
+
+function fuseSearchResults(
+  index: KnowledgeIndex,
+  resultSets: SearchResult[][],
+  limit: number,
+  recentFirst: boolean
+): SearchResult[] {
+  const documentTimes = new Map(
+    index.documents.map((document) => [
+      document.id,
+      reportEndTime(document.title),
+    ])
+  );
+  const fused = new Map<string, FusedSearchResult>();
+
+  for (const results of resultSets) {
+    results.forEach((result, position) => {
+      const contribution = 1 / (40 + position + 1);
+      const existing = fused.get(result.id);
+      if (existing) {
+        existing.fusionScore += contribution;
+        if (result.score > existing.result.score) {
+          existing.result = result;
+        }
+        return;
+      }
+
+      fused.set(result.id, {
+        result,
+        fusionScore: contribution,
+        documentTime: documentTimes.get(result.documentId) || 0,
+      });
+    });
+  }
+
+  const ranked = [...fused.values()].sort((left, right) => {
+    if (recentFirst && left.documentTime !== right.documentTime) {
+      return right.documentTime - left.documentTime;
+    }
+    return (
+      right.fusionScore - left.fusionScore ||
+      right.result.score - left.result.score
+    );
+  });
+  if (!ranked.length) {
+    return [];
+  }
+
+  const selected: FusedSearchResult[] = [];
+  const selectedIds = new Set<string>();
+  const perDocument = new Map<string, number>();
+  for (
+    let round = 1;
+    round <= RETRIEVAL.maxResultsPerDocument && selected.length < limit;
+    round += 1
+  ) {
+    for (const item of ranked) {
+      if (selectedIds.has(item.result.id)) {
+        continue;
+      }
+      const count = perDocument.get(item.result.documentId) || 0;
+      if (count >= round) {
+        continue;
+      }
+      selected.push(item);
+      selectedIds.add(item.result.id);
+      perDocument.set(item.result.documentId, count + 1);
+      if (selected.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  const topFusionScore = Math.max(
+    ...selected.map((item) => item.fusionScore)
+  );
+  return selected.map(({ result, fusionScore }) => ({
+    ...result,
+    score: Math.min(
+      0.99,
+      0.7 + 0.29 * (fusionScore / Math.max(topFusionScore, 0.0001))
+    ),
+  }));
+}
+
+export async function searchKnowledgeForQuestion(
+  index: KnowledgeIndex,
+  query: string,
+  limit: number = RETRIEVAL.maxResults
+): Promise<KnowledgeSearchOutcome> {
+  const searchQueries = buildKnowledgeSearchQueries(query);
+  const recentFirst = isRecentKnowledgeQuery(query);
+
+  if (searchQueries.length === 1 && !recentFirst) {
+    return searchKnowledgeDetailed(index, searchQueries[0], limit);
+  }
+
+  const candidateLimit = Math.max(
+    RETRIEVAL.maxResults,
+    limit * 4
+  );
+  const primary = await searchKnowledgeDetailed(
+    index,
+    searchQueries[0],
+    candidateLimit
+  );
+  const resultSets = [
+    primary.results,
+    ...searchQueries
+      .slice(1)
+      .map((expandedQuery) =>
+        searchIndex(index, expandedQuery, undefined, candidateLimit)
+      ),
+  ];
+  const results = fuseSearchResults(
+    index,
+    resultSets,
+    limit,
+    recentFirst
+  );
+
+  return {
+    results,
+    strategy: results.length
+      ? recentFirst
+        ? "recent"
+        : "expanded"
+      : "empty",
+    effectiveQuery: searchQueries.join(" | "),
   };
 }
 

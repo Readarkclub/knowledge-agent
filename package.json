@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node --import tsx scripts/prepare-build.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "sync": "node --env-file=.env.local --import tsx scripts/sync.ts",
