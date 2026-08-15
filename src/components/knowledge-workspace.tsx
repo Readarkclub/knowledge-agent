@@ -36,13 +36,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { prepareChatRequestMessages } from "@/lib/chat-request";
 import { repairInlineCitations } from "@/lib/citations";
+import { KNOWLEDGE_QUESTION_SUGGESTIONS } from "@/lib/suggestions";
 import type { SearchResult, SyncState } from "@/lib/types";
-
-const SUGGESTIONS = [
-  "最近一周群里讨论了哪些 AI Agent 话题？",
-  "大家对 RAG 知识库落地有哪些经验和分歧？",
-  "整理近期关于 Claude、Codex 与飞书的实践分享",
-];
 
 function formatDate(value?: string): string {
   if (!value) {
@@ -373,7 +368,7 @@ export function KnowledgeWorkspace({
                 </p>
 
                 <div className="mt-10 divide-y divide-white/[0.07] border-y border-white/[0.07]">
-                  {SUGGESTIONS.map((suggestion, index) => (
+                  {KNOWLEDGE_QUESTION_SUGGESTIONS.map((suggestion, index) => (
                     <button
                       className="group flex w-full items-center gap-4 py-4 text-left transition hover:pl-2"
                       key={suggestion}
