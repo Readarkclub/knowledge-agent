@@ -3,6 +3,10 @@ import {
   rateLimitHeaders,
 } from "@/lib/api-security";
 import {
+  canUseQueryEmbeddings,
+  getEmbeddingProviderName,
+} from "@/lib/embeddings";
+import {
   internalErrorResponse,
   reportServerError,
 } from "@/lib/server-errors";
@@ -30,8 +34,13 @@ export async function GET(request: Request) {
           documentCount: index.sync.documentCount,
           chunkCount: index.sync.chunkCount,
           embeddedChunkCount: index.sync.embeddedChunkCount,
+          embeddingProvider: index.sync.embeddingProvider,
         },
         resources: index.resources.length,
+        retrieval: {
+          mode: canUseQueryEmbeddings(index) ? "hybrid" : "keyword",
+          queryEmbeddingProvider: getEmbeddingProviderName() || null,
+        },
         runtime: process.env.VERCEL === "1" ? "vercel-snapshot" : "local",
       },
       { headers: rateLimitHeaders(guard.rateLimit) }
