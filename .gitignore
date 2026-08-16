@@ -49,6 +49,9 @@ yarn-error.log*
 /*-answer.png
 /mobile-evidence.png
 
+# playwright artifacts (browser profiles may contain cookies)
+/output/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
