@@ -323,6 +323,11 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+// streamdown 默认开启 linkSafety：链接渲染成按钮、点击弹确认框。
+// 该弹窗依赖的样式类不在本项目 Tailwind 构建中，渲染残缺；且引用链接
+// 是服务端下发的飞书权威 URL（同右侧证据面板），直接以新标签页打开。
+const linkSafetyDisabled = { enabled: false } as const;
+
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
@@ -330,6 +335,7 @@ export const MessageResponse = memo(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      linkSafety={linkSafetyDisabled}
       plugins={streamdownPlugins}
       {...props}
     />

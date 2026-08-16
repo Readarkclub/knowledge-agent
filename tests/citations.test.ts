@@ -67,3 +67,35 @@ test("repairInlineCitations is a no-op when no sources are supplied", () => {
   const text = "没有证据的回答，不含引用。";
   assert.equal(repairInlineCitations(text, new Map()), text);
 });
+
+test("repairInlineCitations links combined multi-source markers", () => {
+  const text = "模型成本成为选型核心因素 [来源 1, 来源 8]。";
+  const urls = new Map([
+    ["1", "https://renrenai.feishu.cn/wiki/aaa"],
+    ["8", "https://renrenai.feishu.cn/wiki/bbb"],
+  ]);
+
+  assert.equal(
+    repairInlineCitations(text, urls),
+    "模型成本成为选型核心因素 " +
+      "[来源 1](https://renrenai.feishu.cn/wiki/aaa)、" +
+      "[来源 8](https://renrenai.feishu.cn/wiki/bbb)。"
+  );
+});
+
+test("repairInlineCitations handles fullwidth separators and missing ids", () => {
+  const text = "参考 [来源 1，来源 9] 以及 [来源 3、4]。";
+  const urls = new Map([
+    ["1", "https://renrenai.feishu.cn/wiki/aaa"],
+    ["3", "https://renrenai.feishu.cn/wiki/ccc"],
+    ["4", "https://renrenai.feishu.cn/wiki/ddd"],
+  ]);
+
+  assert.equal(
+    repairInlineCitations(text, urls),
+    "参考 " +
+      "[来源 1](https://renrenai.feishu.cn/wiki/aaa)、来源 9 以及 " +
+      "[来源 3](https://renrenai.feishu.cn/wiki/ccc)、" +
+      "[来源 4](https://renrenai.feishu.cn/wiki/ddd)。"
+  );
+});

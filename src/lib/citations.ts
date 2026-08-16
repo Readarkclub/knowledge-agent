@@ -32,7 +32,10 @@ function parseAttributes(source: string): Record<string, string> {
   return attributes;
 }
 
-const INLINE_CITATION_PATTERN = /\[来源\s*(\d+)\](?:\([^)]*\))?/g;
+// 匹配单个 [来源 N] 与模型偶尔写出的多引用合写形式：
+// [来源 1, 来源 8]、[来源1，来源8]、[来源 1、8] 等；尾随的模型自写链接一并吞掉。
+const INLINE_CITATION_PATTERN =
+  /(\[来源\s*\d+(?:\s*[,，、]\s*(?:来源\s*)?\d+)*\])(?:\([^)]*\))?/g;
 
 /**
  * 模型偶尔会漏写 [来源 N](url) 里的括号链接，导致引用渲染成不可点击的
@@ -46,10 +49,21 @@ export function repairInlineCitations(
   if (sourceUrls.size === 0) {
     return text;
   }
-  return text.replace(INLINE_CITATION_PATTERN, (match, id: string) => {
-    const url = sourceUrls.get(id);
-    return url ? `[来源 ${id}](${url})` : match;
-  });
+  return text.replace(
+    INLINE_CITATION_PATTERN,
+    (match, bracket: string) => {
+      const numbers = [...bracket.matchAll(/\d+/g)].map((item) => item[0]);
+      if (!numbers.some((id) => sourceUrls.has(id))) {
+        return match;
+      }
+      return numbers
+        .map((id) => {
+          const url = sourceUrls.get(id);
+          return url ? `[来源 ${id}](${url})` : `来源 ${id}`;
+        })
+        .join("、");
+    }
+  );
 }
 
 export function extractWeeklyReportCitations(
