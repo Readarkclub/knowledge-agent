@@ -6,7 +6,11 @@ import {
 } from "@/lib/citations";
 import { parseWeeklyReportRange } from "@/lib/reports";
 import { KNOWLEDGE_SOURCE } from "@/lib/config";
-import { chunkDocument } from "@/lib/chunking";
+import {
+  applyChunkAnchors,
+  buildHeadingAnchors,
+  chunkDocument,
+} from "@/lib/chunking";
 import {
   embedInBatchesBestEffort,
   getEmbeddingProviderName,
@@ -14,8 +18,10 @@ import {
 } from "@/lib/embeddings";
 import {
   fetchWikiDocument,
+  fetchWikiOutline,
   getWikiNode,
   walkWikiTree,
+  type OutlineHeading,
 } from "@/lib/feishu";
 import {
   extractResourceLinks,
@@ -89,23 +95,38 @@ async function performSync(): Promise<KnowledgeIndex> {
   );
   const warnings: string[] = [];
 
-  const fetched = await mapLimit(documentNodes, 3, async (node) => {
+  // 正文与章节锚点（outline）并行抓取；锚点失败只降级为文档级链接，不阻断同步。
+  const fetchWithAnchors = async (node: WikiNode, url: string) => {
     try {
-      const document = await fetchWikiDocument(node.nodeToken);
-      return {
-        node,
-        document,
-        url: `${KNOWLEDGE_SOURCE.domain}/wiki/${node.nodeToken}`,
-      };
+      const [document, headings] = await Promise.all([
+        fetchWikiDocument(node.nodeToken),
+        fetchWikiOutline(node.nodeToken).catch((error) => {
+          warnings.push(
+            `${node.title}: 章节锚点获取失败，来源链接降级为文档级（${
+              (error as Error).message
+            }）`
+          );
+          return [] as OutlineHeading[];
+        }),
+      ]);
+      return { node, document, headings, url };
     } catch (error) {
       warnings.push(`${node.title}: ${(error as Error).message}`);
       return {
         node,
         document: null,
-        url: `${KNOWLEDGE_SOURCE.domain}/wiki/${node.nodeToken}`,
+        headings: [] as OutlineHeading[],
+        url,
       };
     }
-  });
+  };
+
+  const fetched = await mapLimit(documentNodes, 3, async (node) =>
+    fetchWithAnchors(
+      node,
+      `${KNOWLEDGE_SOURCE.domain}/wiki/${node.nodeToken}`
+    )
+  );
 
   const seenDocumentTokens = new Set(
     documentNodes.flatMap((node) => [node.nodeToken, node.objToken])
@@ -149,23 +170,12 @@ async function performSync(): Promise<KnowledgeIndex> {
       break;
     }
 
-    const citedDocuments = await mapLimit(citedNodes, 3, async (node) => {
-      try {
-        const document = await fetchWikiDocument(node.nodeToken);
-        return {
-          node,
-          document,
-          url: `${KNOWLEDGE_SOURCE.domain}/docx/${node.nodeToken}`,
-        };
-      } catch (error) {
-        warnings.push(`${node.title}: ${(error as Error).message}`);
-        return {
-          node,
-          document: null,
-          url: `${KNOWLEDGE_SOURCE.domain}/docx/${node.nodeToken}`,
-        };
-      }
-    });
+    const citedDocuments = await mapLimit(citedNodes, 3, async (node) =>
+      fetchWithAnchors(
+        node,
+        `${KNOWLEDGE_SOURCE.domain}/docx/${node.nodeToken}`
+      )
+    );
 
     fetched.push(...citedDocuments);
     citationSources = citedDocuments.filter((item) => item.document);
@@ -227,6 +237,12 @@ async function performSync(): Promise<KnowledgeIndex> {
       const reusableChunks = existingDocumentChunks.map((chunk) =>
         providerChanged ? { ...chunk, embedding: undefined } : { ...chunk }
       );
+      // 旧索引的块没有章节锚点，复用时一并补上，无需重抓正文。
+      applyChunkAnchors(
+        reusableChunks,
+        buildHeadingAnchors(item.headings),
+        url
+      );
       chunks.push(...reusableChunks);
       chunksNeedingEmbeddings.push(
         ...reusableChunks.filter((chunk) => !chunk.embedding?.length)
@@ -244,6 +260,11 @@ async function performSync(): Promise<KnowledgeIndex> {
       url,
       markdown: document.markdown,
     });
+    applyChunkAnchors(
+      documentChunks,
+      buildHeadingAnchors(item.headings),
+      url
+    );
 
     documents.push({
       id: node.nodeToken,

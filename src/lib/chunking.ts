@@ -189,3 +189,63 @@ export function chunkDocument(input: {
   return result;
 }
 
+export type HeadingAnchor = {
+  blockId: string;
+  text: string;
+};
+
+// markdown 标题可能带 \~ 等转义，outline XML 标题是原文；
+// 双方都归一到无转义、折叠空白的小写形式后再对齐。
+function normalizeHeadingKey(text: string): string {
+  return text
+    .replace(/\\(\S)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+const MULTI_PIECE_SUFFIX_PATTERN = /\s*·\s*\d+\/\d+$/;
+
+export function buildHeadingAnchors(
+  headings: HeadingAnchor[]
+): Map<string, string> {
+  const anchors = new Map<string, string>();
+  for (const heading of headings) {
+    if (!heading.blockId) {
+      continue;
+    }
+    const key = normalizeHeadingKey(heading.text);
+    if (key && !anchors.has(key)) {
+      anchors.set(key, heading.blockId);
+    }
+  }
+  return anchors;
+}
+
+/**
+ * 飞书文档支持 `文档URL#block_id` 直达定位到具体块。
+ * 把章节锚点写进 chunk.url 后，检索来源、聊天引用等下游链接无需改动
+ * 即可跳到原文对应章节。已带锚点的 url 不再追加，重复应用（增量同步
+ * 复用旧块）幂等。
+ */
+export function applyChunkAnchors(
+  chunks: KnowledgeChunk[],
+  anchors: Map<string, string>,
+  baseUrl: string
+): void {
+  if (!anchors.size) {
+    return;
+  }
+  for (const chunk of chunks) {
+    if (chunk.url.includes("#")) {
+      continue;
+    }
+    const blockId = anchors.get(
+      normalizeHeadingKey(chunk.heading.replace(MULTI_PIECE_SUFFIX_PATTERN, ""))
+    );
+    if (blockId) {
+      chunk.url = `${baseUrl}#${blockId}`;
+    }
+  }
+}
+

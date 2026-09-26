@@ -205,6 +205,79 @@ export async function walkWikiTree(root: WikiNode): Promise<WikiNode[]> {
   return nodes;
 }
 
+export type OutlineHeading = {
+  level: number;
+  blockId: string;
+  text: string;
+};
+
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) =>
+      String.fromCodePoint(parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, dec: string) =>
+      String.fromCodePoint(Number(dec))
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+// outline 模式返回 <fragment mode="outline"><outline><h2 id="...">标题</h2>…</outline></fragment>，
+// 其中 id 即 docx block ID，可拼成 `文档URL#block_id` 直达链接。
+export function parseOutlineHeadings(fragment: string): OutlineHeading[] {
+  const headings: OutlineHeading[] = [];
+  const pattern = /<h([1-6])\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/h\1>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(fragment))) {
+    const text = decodeXmlEntities(match[3].replace(/<[^>]+>/g, ""))
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text) {
+      headings.push({
+        level: Number(match[1]),
+        blockId: match[2],
+        text,
+      });
+    }
+  }
+
+  return headings;
+}
+
+export async function fetchWikiOutline(
+  nodeToken: string
+): Promise<OutlineHeading[]> {
+  const response = await runLark<{
+    document: {
+      content: string;
+    };
+  }>(
+    [
+      "docs",
+      "+fetch",
+      "--doc",
+      nodeToken,
+      "--scope",
+      "outline",
+      "--detail",
+      "with-ids",
+      "--as",
+      "user",
+      "--format",
+      "json",
+    ],
+    120_000,
+    `docs outline ${nodeToken}`
+  );
+
+  return parseOutlineHeadings(response.data.document?.content || "");
+}
+
 export async function fetchWikiDocument(nodeToken: string): Promise<{
   revisionId: number;
   markdown: string;
