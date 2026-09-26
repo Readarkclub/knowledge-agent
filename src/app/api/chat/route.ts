@@ -273,6 +273,9 @@ export async function POST(request: Request) {
     // 把证据链接作为 source-url part 随消息下发，而不是只靠模型在正文里
     // 拼出 [来源 N](url)——模型偶尔会漏掉括号里的链接，导致引用文字不可点击。
     // 客户端据此可以在展示前用权威 URL 修补引用标记。
+    // 另附 data-evidence 部件携带定位信息与原文摘录：飞书外部访问模式不响应
+    // ?block= 块定位，客户端点击引用时用这份数据直接展示对应原文。
+    const evidenceContent = new Map(index.chunks.map((chunk) => [chunk.id, chunk.content]));
     const stream = createUIMessageStream({
       execute({ writer }) {
         for (const [index, source] of sources.entries()) {
@@ -283,6 +286,19 @@ export async function POST(request: Request) {
             title: source.title,
           });
         }
+        writer.write({
+          type: "data-evidence",
+          data: {
+            sources: sources.map((source, index) => ({
+              id: String(index + 1),
+              title: source.title,
+              parentTitle: source.parentTitle,
+              heading: source.heading,
+              excerpt: evidenceContent.get(source.id) || source.excerpt,
+              url: source.url,
+            })),
+          },
+        });
         writer.merge(result.toUIMessageStream());
       },
     });

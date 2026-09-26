@@ -72,8 +72,8 @@ test("applyChunkAnchors anchors chunks by heading, stripping the piece suffix", 
 
   applyChunkAnchors(chunks, anchors, "https://renrenai.feishu.cn/docx/doc");
 
-  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc#blkH2");
-  assert.equal(chunks[1].url, "https://renrenai.feishu.cn/docx/doc#blkH2");
+  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc?block=blkH2");
+  assert.equal(chunks[1].url, "https://renrenai.feishu.cn/docx/doc?block=blkH2");
   assert.equal(chunks[2].url, "https://renrenai.feishu.cn/docx/doc");
 });
 
@@ -90,7 +90,7 @@ test("applyChunkAnchors matches markdown escapes against raw outline text", () =
 
   applyChunkAnchors(chunks, anchors, "https://renrenai.feishu.cn/docx/doc");
 
-  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc#blkTitle");
+  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc?block=blkTitle");
 });
 
 test("applyChunkAnchors is idempotent for already anchored urls", () => {
@@ -98,12 +98,25 @@ test("applyChunkAnchors is idempotent for already anchored urls", () => {
     { blockId: "blkOther", text: "其他章节" },
   ]);
   const chunks = [
-    makeChunk("其他章节", "https://renrenai.feishu.cn/docx/doc#blkOld"),
+    makeChunk("其他章节", "https://renrenai.feishu.cn/docx/doc?block=blkOld"),
   ];
 
   applyChunkAnchors(chunks, anchors, "https://renrenai.feishu.cn/docx/doc");
 
-  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc#blkOld");
+  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc?block=blkOld");
+});
+
+test("applyChunkAnchors rewrites legacy #fragment anchors to ?block= links", () => {
+  const anchors = buildHeadingAnchors([
+    { blockId: "blkH2", text: "1. 主要讨论内容" },
+  ]);
+  const chunks = [
+    makeChunk("1. 主要讨论内容", "https://renrenai.feishu.cn/docx/doc#blkH2"),
+  ];
+
+  applyChunkAnchors(chunks, anchors, "https://renrenai.feishu.cn/docx/doc");
+
+  assert.equal(chunks[0].url, "https://renrenai.feishu.cn/docx/doc?block=blkH2");
 });
 
 test("applyChunkAnchors is a no-op without anchors", () => {
@@ -156,13 +169,13 @@ test("chunkDocument output headings line up with outline anchors", () => {
   const shareChunks = chunks.filter((chunk) =>
     chunk.heading.startsWith("2. 分享的资源与技巧")
   );
-  const unanchored = chunks.filter((chunk) => !chunk.url.includes("#"));
+  const unanchored = chunks.filter((chunk) => !chunk.url.includes("?block="));
 
   assert.ok(mainChunk);
-  assert.equal(mainChunk.url, "https://renrenai.feishu.cn/docx/doc#blkMain");
+  assert.equal(mainChunk.url, "https://renrenai.feishu.cn/docx/doc?block=blkMain");
   assert.ok(shareChunks.length > 1);
   for (const chunk of shareChunks) {
-    assert.equal(chunk.url, "https://renrenai.feishu.cn/docx/doc#blkShare");
+    assert.equal(chunk.url, "https://renrenai.feishu.cn/docx/doc?block=blkShare");
   }
   // 文档标题段落没有对应的 outline 标题，保持文档级链接。
   assert.ok(unanchored.length >= 1);

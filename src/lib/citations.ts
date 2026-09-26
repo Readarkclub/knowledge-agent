@@ -66,6 +66,40 @@ export function repairInlineCitations(
   );
 }
 
+/** Pick the original line that best supports the sentence preceding a citation. */
+export function findMatchingEvidenceLine(
+  excerpt: string,
+  context: string
+): string | null {
+  const normalize = (value: string) =>
+    value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const needle = normalize(context.slice(-160));
+  if (needle.length < 4) {
+    return null;
+  }
+
+  let bestLine: string | null = null;
+  let bestLength = 3;
+  for (const rawLine of excerpt.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const haystack = normalize(line);
+    if (!haystack) {
+      continue;
+    }
+    for (let start = 0; start < needle.length; start += 1) {
+      for (let end = start + bestLength + 1; end <= needle.length; end += 1) {
+        if (haystack.includes(needle.slice(start, end))) {
+          bestLength = end - start;
+          bestLine = line;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+  return bestLine;
+}
+
 export function extractWeeklyReportCitations(
   markdown: string
 ): WeeklyReportCitation[] {

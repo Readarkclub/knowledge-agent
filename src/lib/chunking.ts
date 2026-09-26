@@ -223,10 +223,13 @@ export function buildHeadingAnchors(
 }
 
 /**
- * 飞书文档支持 `文档URL#block_id` 直达定位到具体块。
+ * 飞书文档支持 `文档URL?block=block_id` 直达定位到具体块，这也是客户端
+ * 「复制块链接」的原生格式。不能用 `#block_id` 片段：外部协作者打开链接时
+ * 飞书会跨租户重写域名（如 renrenai → 个人租户域），URL 片段在重定向与
+ * SPA 路由中会丢失，查询参数则全程保留。
  * 把章节锚点写进 chunk.url 后，检索来源、聊天引用等下游链接无需改动
- * 即可跳到原文对应章节。已带锚点的 url 不再追加，重复应用（增量同步
- * 复用旧块）幂等。
+ * 即可跳到原文对应章节。已带 ?block= 锚点的 url 不再追加，重复应用
+ * （增量同步复用旧块）幂等；旧索引的 #block 片段会被改写为新格式。
  */
 export function applyChunkAnchors(
   chunks: KnowledgeChunk[],
@@ -237,14 +240,14 @@ export function applyChunkAnchors(
     return;
   }
   for (const chunk of chunks) {
-    if (chunk.url.includes("#")) {
+    if (chunk.url.includes("?block=")) {
       continue;
     }
     const blockId = anchors.get(
       normalizeHeadingKey(chunk.heading.replace(MULTI_PIECE_SUFFIX_PATTERN, ""))
     );
     if (blockId) {
-      chunk.url = `${baseUrl}#${blockId}`;
+      chunk.url = `${baseUrl}?block=${blockId}`;
     }
   }
 }

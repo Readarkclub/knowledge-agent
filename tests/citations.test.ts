@@ -2,8 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   extractWeeklyReportCitations,
+  findMatchingEvidenceLine,
   repairInlineCitations,
 } from "../src/lib/citations";
+
+test("citation preview selects the supporting line from a multi-item source", () => {
+  const excerpt = [
+    '- 每日分享"果比AI日报"，跟踪AI行业最新动态',
+    "- 分享甲子光年2025 AI产品用户需求调研报告",
+    "- 分享AI哲学应用等新兴AI产品的使用体验",
+  ].join("\n");
+  assert.equal(
+    findMatchingEvidenceLine(excerpt, "AI哲学应用：作为新兴AI产品被提及"),
+    "- 分享AI哲学应用等新兴AI产品的使用体验"
+  );
+  assert.equal(findMatchingEvidenceLine(excerpt, "未提及的完全无关事实"), null);
+});
 
 test("extracts cited weekly docx reports", () => {
   const markdown = [

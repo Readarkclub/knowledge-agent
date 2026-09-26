@@ -21,7 +21,8 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -35,7 +36,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { prepareChatRequestMessages } from "@/lib/chat-request";
-import { repairInlineCitations } from "@/lib/citations";
+import { findMatchingEvidenceLine, repairInlineCitations } from "@/lib/citations";
 import { KNOWLEDGE_QUESTION_SUGGESTIONS } from "@/lib/suggestions";
 import type { SearchResult, SyncState } from "@/lib/types";
 
@@ -69,6 +70,48 @@ function messageSourceUrls(message: UIMessage): Map<string, string> {
   return urls;
 }
 
+export type EvidenceSource = {
+  id: string;
+  title: string;
+  parentTitle: string;
+  heading: string;
+  excerpt: string;
+  url: string;
+};
+
+// 聊天流里的 data-evidence 部件：飞书外部访问模式不响应 ?block= 块定位，
+// 客户端点击引用时用它直接展示对应原文，飞书链接降级为卡片内次级操作。
+function messageEvidence(message: UIMessage): Map<string, EvidenceSource> {
+  const evidence = new Map<string, EvidenceSource>();
+  for (const part of message.parts) {
+    if (part.type === "data-evidence") {
+      const sources = (part as { data?: { sources?: EvidenceSource[] } }).data
+        ?.sources;
+      if (Array.isArray(sources)) {
+        for (const source of sources) {
+          evidence.set(source.id, source);
+        }
+      }
+    }
+  }
+  return evidence;
+}
+
+const CITATION_ANCHOR_PREFIX = "#source-";
+
+// 引用标记链接到站内锚点而不是直接跳飞书；真实 URL 从 evidence 卡片打开。
+function citationAnchorUrls(
+  urls: Map<string, string>,
+  evidence: Map<string, EvidenceSource>
+): Map<string, string> {
+  return new Map(
+    [...urls].map(([id, url]) => [
+      id,
+      evidence.has(id) ? `${CITATION_ANCHOR_PREFIX}${id}` : url,
+    ])
+  );
+}
+
 function displayErrorMessage(value?: string): string {
   if (!value) {
     return "";
@@ -100,6 +143,55 @@ export function KnowledgeWorkspace({
   const [searching, setSearching] = useState(false);
   const [localError, setLocalError] = useState("");
   const [mobileSourcesOpen, setMobileSourcesOpen] = useState(false);
+  const [citationPreview, setCitationPreview] = useState<{
+    evidence: EvidenceSource;
+    matchedLine: string | null;
+    rect: { top: number; left: number; bottom: number };
+  } | null>(null);
+
+  useEffect(() => {
+    if (!citationPreview) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCitationPreview(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [citationPreview]);
+
+  function handleCitationClick(
+    event: ReactMouseEvent<HTMLDivElement>,
+    message: UIMessage
+  ) {
+    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
+      `a[href^="${CITATION_ANCHOR_PREFIX}"]`
+    );
+    if (!anchor) {
+      return;
+    }
+    event.preventDefault();
+    const id = anchor
+      .getAttribute("href")!
+      .slice(CITATION_ANCHOR_PREFIX.length);
+    const evidence = messageEvidence(message).get(id);
+    if (!evidence) {
+      return;
+    }
+    const contextRoot = anchor.closest("p, li") || anchor.parentElement;
+    const range = document.createRange();
+    range.setStart(contextRoot || anchor, 0);
+    range.setEndBefore(anchor);
+    const matchedLine = findMatchingEvidenceLine(evidence.excerpt, range.toString());
+    const rect = anchor.getBoundingClientRect();
+    setCitationPreview({
+      evidence,
+      matchedLine,
+      rect: { top: rect.top, left: rect.left, bottom: rect.bottom },
+    });
+  }
 
   const transport = useMemo(
     () =>
@@ -414,12 +506,17 @@ export function KnowledgeWorkspace({
                     }
                   >
                     {message.role === "assistant" ? (
-                      <MessageResponse className="max-w-none dark:prose-invert [&_a]:text-amber-200 [&_a]:underline-offset-4 [&_h3]:mt-7 [&_h3]:text-base [&_li]:my-1">
-                        {repairInlineCitations(
-                          messageText(message),
-                          messageSourceUrls(message)
-                        )}
-                      </MessageResponse>
+                      <div onClick={(event) => handleCitationClick(event, message)}>
+                        <MessageResponse className="max-w-none dark:prose-invert [&_a]:text-amber-200 [&_a]:underline-offset-4 [&_h3]:mt-7 [&_h3]:text-base [&_li]:my-1">
+                          {repairInlineCitations(
+                            messageText(message),
+                            citationAnchorUrls(
+                              messageSourceUrls(message),
+                              messageEvidence(message)
+                            )
+                          )}
+                        </MessageResponse>
+                      </div>
                     ) : (
                       <p>{messageText(message)}</p>
                     )}
@@ -528,7 +625,93 @@ export function KnowledgeWorkspace({
           </div>
         </div>
       )}
+
+      {citationPreview && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setCitationPreview(null)}
+          />
+          <CitationPreviewCard
+            evidence={citationPreview.evidence}
+            matchedLine={citationPreview.matchedLine}
+            onClose={() => setCitationPreview(null)}
+            rect={citationPreview.rect}
+          />
+        </>
+      )}
     </main>
+  );
+}
+
+function CitationPreviewCard({
+  evidence,
+  matchedLine,
+  onClose,
+  rect,
+}: {
+  evidence: EvidenceSource;
+  matchedLine: string | null;
+  onClose: () => void;
+  rect: { top: number; left: number; bottom: number };
+}) {
+  const estimatedHeight = 300;
+  const viewport = typeof window === "undefined" ? null : window;
+  const width = viewport ? Math.min(340, viewport.innerWidth - 24) : 340;
+  const left = viewport
+    ? Math.min(Math.max(12, rect.left), viewport.innerWidth - width - 12)
+    : 12;
+  const openDownward = viewport
+    ? rect.bottom + estimatedHeight <= viewport.innerHeight
+    : true;
+  const top = openDownward
+    ? rect.bottom + 8
+    : Math.max(12, rect.top - estimatedHeight - 8);
+
+  return (
+    <div
+      aria-label="引用来源"
+      className="citation-preview fixed z-50 w-[min(340px,calc(100vw-24px))] rounded-2xl border border-white/[0.12] bg-[color:var(--drawer)] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
+      role="dialog"
+      style={{ top, left }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] font-medium tracking-[0.18em] text-amber-200/60 uppercase">
+          来源 {evidence.id}
+        </p>
+        <button
+          aria-label="关闭来源卡片"
+          className="grid size-7 shrink-0 place-items-center rounded-full bg-white/[0.06] text-white/55 transition hover:bg-white/[0.1]"
+          onClick={onClose}
+          type="button"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <p className="mt-2.5 text-[12px] font-medium leading-5 text-white/82">
+        {evidence.title}
+      </p>
+      <p className="mt-1 text-[10px] text-white/32">
+        {evidence.parentTitle} / {evidence.heading}
+      </p>
+      {matchedLine && (
+        <p className="mt-3 rounded-lg bg-amber-200/[0.08] px-2.5 py-2 text-[12px] leading-5 text-amber-100/90">
+          {matchedLine}
+        </p>
+      )}
+      <p className="mt-3 max-h-44 overflow-y-auto whitespace-pre-line text-[11px] leading-5 text-white/55">
+        {evidence.excerpt}
+      </p>
+      <a
+        className="mt-3.5 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[11px] text-amber-200/85 transition hover:border-amber-200/30 hover:text-amber-100"
+        href={evidence.url}
+        rel="noreferrer"
+        target="_blank"
+      >
+        在飞书中打开
+        <ExternalLink className="size-3" />
+      </a>
+    </div>
   );
 }
 
